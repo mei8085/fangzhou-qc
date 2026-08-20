@@ -1,0 +1,670 @@
+#!/usr/bin/env node
+// Fetch Ark 38 crowdtest data from the ark.volcengine.com platform.
+//
+// Main use:
+//   node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome
+//   node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 --task-id 475 --sheet-task-id <任务ID>
+//
+// Outputs:
+//   tasks/<TASK_ID>/ark38/model_runs.json
+//   tasks/<TASK_ID>/ark38/task.json
+//   tasks/<TASK_ID>/ark38/<RUN_ID>__<CODE_NAME>/
+//     model_run.json
+//     evaluation.json
+//     workspace_browser.json
+//     workspace/<downloaded zip>
+//     trajectory/sessions.json
+//     trajectory/<SESSION_ID>.json
+//     trajectory/trajectory.md
+
+const { chromium } = require('playwright');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { spawnSync } = require('child_process');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
+
+const HOST = 'https://console.volcengine.com';
+const ARK_REFERER = 'https://ark.volcengine.com/';
+const API_BASE = `${HOST}/api/top/ark/cn-beijing/2024-01-01`;
+const HERE = __dirname;
+const SKILL_DIR = path.resolve(HERE, '..');
+const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..');
+const DEFAULT_STATE = path.join(SKILL_DIR, '.ark_platform_state.json');
+const DEFAULT_PROJECT_ID = 256;
+const OUTPUT_SUBDIR = 'ark38';
+
+const VISIBLE_COLUMNS = [
+  'taskAndModel',
+  'reviewEntry',
+  'actions',
+  'runtimeStatus',
+  'score',
+  'duration',
+  'rounds',
+  'tokens',
+  'creator',
+  'reviewer',
+];
+
+function parseArgs(argv) {
+  const opts = { cmd: argv[2], _: [] };
+  for (let i = 3; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const k = a.slice(2);
+      const next = argv[i + 1];
+      opts[k] = next && !next.startsWith('--') ? argv[++i] : true;
+    } else {
+      opts._.push(a);
+    }
+  }
+  return opts;
+}
+
+function usage(code = 2) {
+  console.error(`usage:
+  node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json] [--profile Default]
+  node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 (--task-id 475 | --task-title <title>) --sheet-task-id <任务ID> [--state <state.json>] [--tasks-dir tasks] [--skip-workspace] [--skip-trajectory] [--keep-existing] [--runs 1702,1701]
+  node skills/qc-eval/scripts/fetch_38_platform.js find-project (--task-id 475 | --task-title <title>) [--projects 230-270|256] [--state <state.json>]
+
+notes:
+  auth-from-chrome reads the current Windows Chrome login cookies and writes a Playwright storageState.
+  find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
+  collect reads task/model rows, per-run evaluation/audit data, workspace zip, and session trajectory JSON.`);
+  process.exit(code);
+}
+
+function rel(p) {
+  return path.relative(REPO_ROOT, p).replace(/\\/g, '/');
+}
+
+function sanitize(s) {
+  return String(s || '').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
+}
+
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function writeJSON(file, value) {
+  ensureDir(path.dirname(file));
+  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+}
+
+function readJSON(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function readCachedRunRows(taskDir) {
+  if (!fs.existsSync(taskDir)) return [];
+  return fs.readdirSync(taskDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(taskDir, entry.name, 'model_run.json'))
+    .filter((file) => fs.existsSync(file))
+    .map((file) => readJSON(file));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientApiError(err) {
+  const msg = String((err && err.message) || err || '');
+  return /InternalServiceTimeout|AccountFlowLimitExceeded|timeout/i.test(msg);
+}
+
+function csrfFromState(statePath) {
+  const state = readJSON(statePath);
+  const cookie = (state.cookies || []).find((c) => c.name === 'csrfToken' && String(c.domain || '').includes('volcengine.com'));
+  if (!cookie || !cookie.value) {
+    throw new Error(`csrfToken cookie not found in ${statePath}; refresh auth with auth-from-chrome`);
+  }
+  return cookie.value;
+}
+
+function responseError(action, status, body) {
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  return new Error(`${action} -> HTTP ${status}: ${text.slice(0, 800)}`);
+}
+
+async function postAction(ctx, statePath, action, data) {
+  const maxAttempts = Number(process.env.ARK_FETCH_RETRIES || 4);
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const resp = await ctx.request.post(`${API_BASE}/${action}`, {
+        headers: {
+          'content-type': 'application/json',
+          'x-csrf-token': csrfFromState(statePath),
+          referer: ARK_REFERER,
+        },
+        data,
+        timeout: 120000,
+      });
+      const status = resp.status();
+      let body;
+      try {
+        body = await resp.json();
+      } catch {
+        body = await resp.text();
+      }
+      if (status >= 400) throw responseError(action, status, body);
+      if (body && body.ResponseMetadata && body.ResponseMetadata.Error) {
+        throw new Error(`${action}: ${body.ResponseMetadata.Error.Code}: ${body.ResponseMetadata.Error.Message}`);
+      }
+      if (body && body.code && body.code !== 0) {
+        throw new Error(`${action}: code=${body.code} message=${body.message || ''}`);
+      }
+      return body.data;
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= maxAttempts || !isTransientApiError(err)) break;
+      const waitMs = Math.min(60000, 3000 * attempt * attempt);
+      console.warn(`   [retry] ${action} attempt ${attempt}/${maxAttempts}: ${err.message}; wait ${waitMs}ms`);
+      await sleep(waitMs);
+    }
+  }
+  throw lastErr;
+}
+
+async function downloadTo(url, outPath, keepExisting) {
+  if (keepExisting && fs.existsSync(outPath) && fs.statSync(outPath).size > 0) {
+    console.log(`   [keep] ${rel(outPath)} (${fs.statSync(outPath).size} bytes)`);
+    return { path: outPath, size: fs.statSync(outPath).size, skipped: true };
+  }
+  ensureDir(path.dirname(outPath));
+  const tmp = `${outPath}.part`;
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`GET ${url} -> ${resp.status} ${text.slice(0, 500)}`);
+  }
+  await pipeline(Readable.fromWeb(resp.body), fs.createWriteStream(tmp));
+  fs.renameSync(tmp, outPath);
+  const size = fs.statSync(outPath).size;
+  console.log(`   [download] ${rel(outPath)} (${size} bytes)`);
+  return { path: outPath, size, skipped: false };
+}
+
+function msToISO(ms) {
+  if (!ms) return '';
+  try {
+    return new Date(ms).toISOString();
+  } catch {
+    return '';
+  }
+}
+
+function truncateForMarkdown(value, limit = 50000) {
+  const s = value == null ? '' : String(value);
+  if (s.length <= limit) return s;
+  return `${s.slice(0, limit)}\n\n[truncated ${s.length - limit} chars; see raw JSON for full data]`;
+}
+
+function renderTrajectoryMarkdown(run, sessionList, detailsBySession) {
+  const lines = [];
+  lines.push(`# Session trajectory for run ${run.modelRun.taskModelRunId}`);
+  lines.push('');
+  lines.push(`- task: ${run.task.id} ${run.task.title}`);
+  lines.push(`- model: ${run.modelRun.realName} (${run.modelRun.codeName})`);
+  lines.push(`- framework: ${run.task.framework}`);
+  lines.push(`- sessions: ${sessionList.totalCount || (sessionList.items || []).length || 0}`);
+  lines.push('');
+
+  for (const [index, item] of (sessionList.items || []).entries()) {
+    const detail = detailsBySession[item.sessionId] || {};
+    const traces = detail.sessionTraces || [];
+    lines.push(`## Session ${index + 1}`);
+    lines.push('');
+    lines.push(`- sessionId: ${item.sessionId}`);
+    lines.push(`- userId: ${item.userId || ''}`);
+    lines.push(`- time: ${msToISO(item.sessionStartTime)} -> ${msToISO(item.sessionEndTime)}`);
+    lines.push(`- traces: ${item.traceCount || traces.length}`);
+    lines.push(`- tokens: input=${item.inputTokens || 0}, output=${item.outputTokens || 0}, total=${item.totalTokens || 0}`);
+    lines.push('');
+
+    for (const [tIndex, trace] of traces.entries()) {
+      lines.push(`### Trace ${tIndex + 1}: ${trace.traceId || ''}`);
+      lines.push('');
+      lines.push(`- start: ${msToISO(trace.startTime)}`);
+      lines.push(`- durationMs: ${trace.duration || ''}`);
+      lines.push(`- tokens: input=${trace.inputTokens || 0}, output=${trace.outputTokens || 0}, total=${trace.totalTokens || 0}`);
+      if (trace.input) {
+        lines.push('');
+        lines.push('#### Input');
+        lines.push('');
+        lines.push('```text');
+        lines.push(truncateForMarkdown(trace.input));
+        lines.push('```');
+      }
+      if (trace.output) {
+        lines.push('');
+        lines.push('#### Output');
+        lines.push('');
+        lines.push('```text');
+        lines.push(truncateForMarkdown(trace.output));
+        lines.push('```');
+      }
+      for (const key of ['toolCalls', 'tool_calls', 'spans', 'events', 'messages']) {
+        if (Array.isArray(trace[key]) && trace[key].length) {
+          lines.push('');
+          lines.push(`#### ${key}`);
+          lines.push('');
+          lines.push('```json');
+          lines.push(truncateForMarkdown(JSON.stringify(trace[key], null, 2)));
+          lines.push('```');
+        }
+      }
+      lines.push('');
+    }
+  }
+  return `${lines.join('\n').trim()}\n`;
+}
+
+async function fetchWorkspaceZip(ctx, statePath, run, runDir, opts) {
+  const runId = run.modelRun.taskModelRunId;
+  const workspaceDir = path.join(runDir, 'workspace');
+  ensureDir(workspaceDir);
+  let job = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelWorkspaceDownloadStart', { taskModelRunId: runId });
+  const started = Date.now();
+  while (!job.downloadReady && !['completed', 'failed'].includes(job.status)) {
+    if (Date.now() - started > opts.timeoutMs) {
+      throw new Error(`workspace download timed out for run ${runId}, job ${job.jobId}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, opts.pollMs));
+    job = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelWorkspaceDownloadStatus', {
+      taskModelRunId: runId,
+      jobId: job.jobId,
+    });
+    console.log(`   [workspace] run ${runId} ${job.status}/${job.phase} ${job.progressPct || 0}%`);
+  }
+  if (!job.downloadReady) {
+    throw new Error(`workspace package failed for run ${runId}: ${job.errorType || ''} ${job.errorMessage || ''}`);
+  }
+  writeJSON(path.join(workspaceDir, 'download_job.json'), job);
+  const got = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelWorkspaceDownloadGet', {
+    taskModelRunId: runId,
+    jobId: job.jobId,
+  });
+  writeJSON(path.join(workspaceDir, 'download_url.json'), { ...got, saved_at: new Date().toISOString() });
+  const fileName = sanitize(job.fileName || `${run.task.id}-${runId}-${run.modelRun.codeName}.zip`);
+  return downloadTo(got.downloadUrl, path.join(workspaceDir, fileName), opts.keepExisting);
+}
+
+async function collectOneRun(ctx, statePath, run, taskDir, opts) {
+  const runId = run.modelRun.taskModelRunId;
+  const tag = `${runId}__${sanitize(run.modelRun.codeName)}`;
+  const runDir = path.join(taskDir, tag);
+  ensureDir(runDir);
+  console.log(`\n==> run ${runId}: ${run.modelRun.realName} (${run.modelRun.codeName})`);
+  writeJSON(path.join(runDir, 'model_run.json'), run);
+
+  const evaluationPath = path.join(runDir, 'evaluation.json');
+  if (opts.keepExisting && fs.existsSync(evaluationPath)) {
+    console.log(`   [keep] ${rel(evaluationPath)}`);
+  } else {
+    const evaluation = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelEvaluationGet', { taskModelRunId: runId });
+    writeJSON(evaluationPath, evaluation);
+  }
+
+  const workspaceBrowserPath = path.join(runDir, 'workspace_browser.json');
+  if (opts.keepExisting && fs.existsSync(workspaceBrowserPath)) {
+    console.log(`   [keep] ${rel(workspaceBrowserPath)}`);
+  } else {
+    const workspaceBrowser = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelWorkspaceBrowserGet', { taskModelRunId: runId });
+    writeJSON(workspaceBrowserPath, workspaceBrowser);
+  }
+
+  if (!opts.skipTrajectory) {
+    const trajDir = path.join(runDir, 'trajectory');
+    ensureDir(trajDir);
+    const sessionsPath = path.join(trajDir, 'sessions.json');
+    let sessions;
+    if (opts.keepExisting && fs.existsSync(sessionsPath)) {
+      sessions = readJSON(sessionsPath);
+      console.log(`   [keep] ${rel(sessionsPath)}`);
+    } else {
+      sessions = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelByteHouseSessionListGet', { taskModelRunId: runId });
+      writeJSON(sessionsPath, sessions);
+    }
+    const detailsBySession = {};
+    for (const item of sessions.items || []) {
+      const detailPath = path.join(trajDir, `${sanitize(item.sessionId)}.json`);
+      let detail;
+      if (opts.keepExisting && fs.existsSync(detailPath)) {
+        detail = readJSON(detailPath);
+        console.log(`   [keep] ${rel(detailPath)}`);
+      } else {
+        detail = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelByteHouseSessionDetailGet', {
+          taskModelRunId: runId,
+          sessionId: item.sessionId,
+        });
+        writeJSON(detailPath, detail);
+      }
+      detailsBySession[item.sessionId] = detail;
+      console.log(`   [trajectory] session ${item.sessionId} traces=${(detail.sessionTraces || []).length}`);
+    }
+    fs.writeFileSync(path.join(trajDir, 'trajectory.md'), renderTrajectoryMarkdown(run, sessions, detailsBySession));
+  } else {
+    console.log('   [trajectory] skipped by --skip-trajectory');
+  }
+
+  if (!opts.skipWorkspace) {
+    await fetchWorkspaceZip(ctx, statePath, run, runDir, opts);
+  }
+}
+
+async function collect(opts) {
+  const projectId = Number(opts.project || DEFAULT_PROJECT_ID);
+  const statePath = path.resolve(opts.state || DEFAULT_STATE);
+  if (!fs.existsSync(statePath)) {
+    throw new Error(`state file not found: ${statePath}; run auth-from-chrome first`);
+  }
+  const tasksDir = path.resolve(opts['tasks-dir'] || path.join(REPO_ROOT, 'tasks'));
+  const taskKeyword = opts['task-id'] ? String(opts['task-id']) : opts['task-title'];
+  if (!taskKeyword) usage();
+  const sheetTaskId = opts['sheet-task-id'];
+  if (!sheetTaskId) {
+    throw new Error('missing --sheet-task-id <任务ID>; 38期本地目录必须使用源表任务ID，不能用行号或平台任务ID兜底');
+  }
+  const localId = String(sheetTaskId);
+  const taskDir = path.join(tasksDir, localId, OUTPUT_SUBDIR);
+  const wantedRuns = opts.runs ? new Set(String(opts.runs).split(',').map((s) => s.trim()).filter(Boolean)) : null;
+  const runOpts = {
+    skipWorkspace: Boolean(opts['skip-workspace']),
+    skipTrajectory: Boolean(opts['skip-trajectory']),
+    keepExisting: Boolean(opts['keep-existing']),
+    pollMs: Number(opts['poll-ms'] || 2500),
+    timeoutMs: Number(opts['timeout-ms'] || 10 * 60 * 1000),
+  };
+
+  const browser = await chromium.launch({ headless: true });
+  const ctx = await browser.newContext({ storageState: statePath, acceptDownloads: true });
+  try {
+    const modelRunsPath = path.join(taskDir, 'model_runs.json');
+    let list;
+    try {
+      list = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelRunList', {
+        projectId,
+        page: 1,
+        pageSize: 20,
+        taskKeyword,
+        visibleColumns: VISIBLE_COLUMNS,
+      });
+    } catch (err) {
+      if (!runOpts.keepExisting || !fs.existsSync(modelRunsPath) || !isTransientApiError(err)) throw err;
+      console.warn(`   [cache] model run list failed: ${err.message}; using ${rel(modelRunsPath)}`);
+      list = readJSON(modelRunsPath);
+    }
+    let rows = list.result || [];
+    if (runOpts.keepExisting) {
+      const byRunId = new Map(rows.map((r) => [String(r.modelRun && r.modelRun.taskModelRunId), r]));
+      for (const cached of readCachedRunRows(taskDir)) {
+        const id = String(cached.modelRun && cached.modelRun.taskModelRunId);
+        if (id && !byRunId.has(id)) byRunId.set(id, cached);
+      }
+      rows = Array.from(byRunId.values());
+    }
+    if (opts['task-id']) rows = rows.filter((r) => String(r.task && r.task.id) === String(opts['task-id']));
+    if (opts['task-title']) {
+      const exactTitleRows = rows.filter((r) => (r.task && r.task.title) === opts['task-title']);
+      if (exactTitleRows.length) rows = exactTitleRows;
+    }
+    if (wantedRuns) rows = rows.filter((r) => wantedRuns.has(String(r.modelRun && r.modelRun.taskModelRunId)));
+    if (!rows.length && wantedRuns && runOpts.keepExisting) {
+      rows = readCachedRunRows(taskDir).filter((r) => wantedRuns.has(String(r.modelRun && r.modelRun.taskModelRunId)));
+      if (rows.length) console.warn(`   [cache] using ${rows.length} cached model_run.json file(s)`);
+    }
+    if (!rows.length) throw new Error(`no model runs found for keyword: ${taskKeyword}`);
+
+    const taskId = rows[0].task.id;
+    ensureDir(taskDir);
+    if (!wantedRuns || !fs.existsSync(modelRunsPath)) {
+      writeJSON(modelRunsPath, { query: { projectId, taskKeyword, localId }, ...list, result: rows });
+    }
+
+    const taskPath = path.join(taskDir, 'task.json');
+    if (runOpts.keepExisting && fs.existsSync(taskPath)) {
+      console.log(`   [keep] ${rel(taskPath)}`);
+    } else {
+      const task = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskGet', { taskId });
+      writeJSON(taskPath, task);
+    }
+
+    console.log(`==> task ${taskId}: ${rows[0].task.title}`);
+    console.log(`==> runs: ${rows.map((r) => `${r.modelRun.taskModelRunId}/${r.modelRun.codeName}/${r.modelRun.realName}`).join(', ')}`);
+    for (const run of rows) {
+      await collectOneRun(ctx, statePath, run, taskDir, runOpts);
+    }
+    writeJSON(path.join(taskDir, '_summary.json'), {
+      sheet_task_id: localId,
+      ark_task_id: taskId,
+      project_id: projectId,
+      title: rows[0].task.title,
+      runs: rows.map((r) => ({
+        task_model_run_id: r.modelRun.taskModelRunId,
+        code_name: r.modelRun.codeName,
+        real_name: r.modelRun.realName,
+        path: rel(path.join(taskDir, `${r.modelRun.taskModelRunId}__${sanitize(r.modelRun.codeName)}`)),
+      })),
+      generated_at: new Date().toISOString(),
+    });
+    console.log(`\n==> wrote ${rel(taskDir)}`);
+  } finally {
+    await browser.close();
+  }
+}
+
+function parseProjectSpec(value) {
+  const raw = String(value || '230-270').trim();
+  const ids = [];
+  for (const part of raw.split(',')) {
+    const s = part.trim();
+    if (!s) continue;
+    const range = s.match(/^(\d+)-(\d+)$/);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      const step = start <= end ? 1 : -1;
+      for (let id = start; step > 0 ? id <= end : id >= end; id += step) ids.push(id);
+    } else {
+      ids.push(Number(s));
+    }
+  }
+  return [...new Set(ids.filter((id) => Number.isFinite(id)))];
+}
+
+async function findProject(opts) {
+  const statePath = path.resolve(opts.state || DEFAULT_STATE);
+  if (!fs.existsSync(statePath)) {
+    throw new Error(`state file not found: ${statePath}; run auth-from-chrome first`);
+  }
+  const taskKeyword = opts['task-id'] ? String(opts['task-id']) : opts['task-title'];
+  if (!taskKeyword) usage();
+  const projectIds = parseProjectSpec(opts.projects);
+  const pageSize = Number(opts['page-size'] || 20);
+  const outDir = path.resolve(opts['tasks-dir'] || path.join(REPO_ROOT, 'tasks'));
+  ensureDir(outDir);
+
+  const browser = await chromium.launch({ headless: true });
+  const ctx = await browser.newContext({ storageState: statePath, acceptDownloads: true });
+  const attempts = [];
+  const matches = [];
+  try {
+    for (const projectId of projectIds) {
+      try {
+        const list = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelRunList', {
+          projectId,
+          page: 1,
+          pageSize,
+          taskKeyword,
+          visibleColumns: VISIBLE_COLUMNS,
+        });
+        let rows = list.result || [];
+        if (opts['task-id']) rows = rows.filter((r) => String(r.task && r.task.id) === String(opts['task-id']));
+        if (opts['task-title']) {
+          const exactTitleRows = rows.filter((r) => (r.task && r.task.title) === opts['task-title']);
+          if (exactTitleRows.length) rows = exactTitleRows;
+        }
+        attempts.push({ projectId, total: list.total || list.totalCount || rows.length || 0, returned: rows.length });
+        if (rows.length) {
+          const found = rows.map((r) => ({
+            projectId,
+            taskId: r.task && r.task.id,
+            taskTitle: r.task && r.task.title,
+            taskModelRunId: r.modelRun && r.modelRun.taskModelRunId,
+            codeName: r.modelRun && r.modelRun.codeName,
+            realName: r.modelRun && r.modelRun.realName,
+          }));
+          matches.push(...found);
+          console.log(`[match] project=${projectId} rows=${rows.length} task=${found[0].taskId} ${found[0].taskTitle}`);
+        } else {
+          console.log(`[empty] project=${projectId}`);
+        }
+      } catch (e) {
+        attempts.push({ projectId, error: e.message });
+        console.log(`[error] project=${projectId} ${e.message.slice(0, 160)}`);
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+  const outPath = path.join(outDir, `_38_project_probe_${sanitize(taskKeyword)}.json`);
+  writeJSON(outPath, { query: { taskKeyword, projectIds }, matches, attempts, generated_at: new Date().toISOString() });
+  console.log(`==> wrote ${rel(outPath)}`);
+  if (!matches.length) throw new Error(`no project matched keyword: ${taskKeyword}`);
+}
+
+function run(command, args, options = {}) {
+  const r = spawnSync(command, args, { encoding: 'utf8', stdio: options.stdio || 'pipe' });
+  if (r.status !== 0) {
+    throw new Error(`${command} ${args.join(' ')} failed (${r.status})\n${r.stdout || ''}\n${r.stderr || ''}`);
+  }
+  return r.stdout;
+}
+
+function authFromChrome(opts) {
+  if (process.platform !== 'win32') {
+    throw new Error('auth-from-chrome currently supports Windows Chrome profiles only');
+  }
+  const statePath = path.resolve(opts.state || DEFAULT_STATE);
+  const profile = opts.profile || 'Default';
+  const userDataDir = opts['chrome-user-data-dir'] ||
+    path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'User Data');
+  const resolvedUserDataDir = path.resolve(userDataDir);
+  const driveMatch = resolvedUserDataDir.match(/^([A-Za-z]):\\(.*)$/);
+  if (!driveMatch) {
+    throw new Error(`unsupported Chrome user data dir for VSS copy: ${resolvedUserDataDir}`);
+  }
+  const volume = `${driveMatch[1].toUpperCase()}:\\`;
+  const shadowSuffix = driveMatch[2];
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ark38-chrome-'));
+  const cookieCopy = path.join(tempDir, 'Cookies');
+  const localStateCopy = path.join(tempDir, 'Local State');
+  let shadowId = null;
+  try {
+    const ps = `
+$ErrorActionPreference='Stop'
+$r = Invoke-CimMethod -ClassName Win32_ShadowCopy -MethodName Create -Arguments @{Volume='${volume.replace(/'/g, "''")}'; Context='ClientAccessible'}
+$id = $r.ShadowID
+$shadow = Get-CimInstance Win32_ShadowCopy | Where-Object { $_.ID -eq $id }
+$base = $shadow.DeviceObject + '\\${shadowSuffix}'
+Copy-Item -LiteralPath ($base + '\\${profile.replace(/'/g, "''")}\\Network\\Cookies') -Destination '${cookieCopy.replace(/'/g, "''")}' -Force
+Copy-Item -LiteralPath ($base + '\\Local State') -Destination '${localStateCopy.replace(/'/g, "''")}' -Force
+Write-Output $id
+`;
+    shadowId = run('powershell', ['-NoProfile', '-Command', ps]).trim().split(/\r?\n/).pop();
+    const py = String.raw`
+import base64, hashlib, json, os, sqlite3, sys
+import win32crypt
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+cookies_db, local_state, out = sys.argv[1:4]
+ls = json.load(open(local_state, encoding='utf-8'))
+enc_key = base64.b64decode(ls['os_crypt']['encrypted_key'])
+if enc_key.startswith(b'DPAPI'):
+    enc_key = enc_key[5:]
+key = win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
+
+def chrome_time_to_unix(t):
+    return -1 if not t else max(0, int(t / 1000000 - 11644473600))
+
+def decrypt_value(host, value, encrypted):
+    if value:
+        return value
+    if not encrypted:
+        return ''
+    if encrypted.startswith(b'v10') or encrypted.startswith(b'v11'):
+        plain = AESGCM(key).decrypt(encrypted[3:15], encrypted[15:], None)
+        digest = hashlib.sha256(host.encode()).digest()
+        if plain.startswith(digest):
+            plain = plain[32:]
+        return plain.decode('utf-8', errors='replace')
+    return win32crypt.CryptUnprotectData(encrypted, None, None, None, 0)[1].decode('utf-8', errors='replace')
+
+def same_site(n):
+    if n == 2:
+        return 'Strict'
+    if n == 0:
+        return 'None'
+    return 'Lax'
+
+con = sqlite3.connect(cookies_db)
+con.row_factory = sqlite3.Row
+rows = con.execute("""
+select host_key,name,value,encrypted_value,path,expires_utc,is_secure,is_httponly,samesite
+from cookies
+where host_key like '%volcengine.com'
+   or host_key like 'ark.volcengine.com'
+   or host_key like 'console.volcengine.com'
+   or host_key like 'signin.volcengine.com'
+""").fetchall()
+cookies = []
+for r in rows:
+    try:
+        val = decrypt_value(r['host_key'], r['value'], r['encrypted_value'])
+    except Exception:
+        continue
+    if not val:
+        continue
+    cookies.append({
+        'name': r['name'],
+        'value': val,
+        'domain': r['host_key'],
+        'path': r['path'] or '/',
+        'expires': chrome_time_to_unix(r['expires_utc']),
+        'httpOnly': bool(r['is_httponly']),
+        'secure': bool(r['is_secure']),
+        'sameSite': same_site(r['samesite']),
+    })
+os.makedirs(os.path.dirname(out), exist_ok=True)
+json.dump({'cookies': cookies, 'origins': []}, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+print(len(cookies))
+`;
+    const pyFile = path.join(tempDir, 'export_state.py');
+    fs.writeFileSync(pyFile, py);
+    const count = run('python', [pyFile, cookieCopy, localStateCopy, statePath]).trim();
+    csrfFromState(statePath);
+    console.log(`==> wrote ${rel(statePath)} (${count} cookies)`);
+  } finally {
+    if (shadowId) {
+      spawnSync('powershell', ['-NoProfile', '-Command', `Get-CimInstance Win32_ShadowCopy | Where-Object { $_.ID -eq '${shadowId}' } | Remove-CimInstance`], { stdio: 'ignore' });
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function main() {
+  const opts = parseArgs(process.argv);
+  if (opts.cmd === 'auth-from-chrome') return authFromChrome(opts);
+  if (opts.cmd === 'find-project') return findProject(opts);
+  if (opts.cmd === 'collect') return collect(opts);
+  usage();
+}
+
+main().catch((e) => {
+  console.error(e.stack || e.message || e);
+  process.exit(1);
+});

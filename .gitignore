@@ -1,0 +1,42 @@
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+
+# 本地工具/运行缓存
+.dotnet-home/
+.dotnet-win/
+.qc_venv/
+.pytest_cache/
+.oc_ws/
+dist/
+data/
+tmp/
+
+# 单题原始下载物，体积大；按需重跑 fetch.py 即可恢复
+tasks/*/*.zip
+tasks/*/source/
+tasks/*/extracted/
+tasks/*/screenshots/
+tasks/*/*.html
+
+# 保留：sheet2_row.json / sheet3_row.json / labeler_feedback.json / qc_cells.json / 质检评估_*.md
+
+# 临时
+.lark-cells.json
+
+# 任务与交付产物：保留规则脚本和规范文件，屏蔽评测过程中生成的内容
+tasks/
+delivery/
+
+# 平台登录凭据 / 会话快照，绝不能进 git
+skills/qc-eval/.platform_state.json
+skills/qc-eval/.platform_creds.json
+skills/qc-eval/.ark_platform_state.json
+
+# fullstack verify: per-model venvs, generated env files, per-task logs, smoke test PNGs
+tmp/verify_smoke/
+
+# push guard sentinels + tunnel state
+delivery/*/.pushed
+.qc-eval/
