@@ -34,7 +34,23 @@ const SKILL_DIR = path.resolve(HERE, '..');
 const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..');
 const DEFAULT_STATE = path.join(SKILL_DIR, '.ark_platform_state.json');
 const DEFAULT_PROJECT_ID = 256;
-const OUTPUT_SUBDIR = 'ark38';
+const DEFAULT_OUTPUT_SUBDIR = 'ark38';
+const G1_CONFIG_PATH = path.join(SKILL_DIR, 'config', 'g1.json');
+const DOWNLOAD_LIST_ACTION = 'CaseBffV1CrowdtestTaskModelWorkspaceDownloadLatestList';
+
+function loadG1Config() {
+  if (!fs.existsSync(G1_CONFIG_PATH)) return null;
+  return readJSON(G1_CONFIG_PATH);
+}
+
+function g1SheetModel(codeName, config) {
+  const key = String(codeName || '').trim().toLowerCase();
+  for (const model of (config && config.models) || []) {
+    if (String(model.platform || '').toLowerCase() === key) return model.sheet;
+    if (String(model.code || '').toLowerCase() === key) return model.sheet;
+  }
+  return '';
+}
 
 const VISIBLE_COLUMNS = [
   'taskAndModel',
@@ -68,6 +84,7 @@ function usage(code = 2) {
   console.error(`usage:
   node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json] [--profile Default] [--chrome-user-data-dir <dir>]
   node skills/qc-eval/scripts/fetch_38_platform.js auth-login [--state skills/qc-eval/.ark_platform_state.json] [--url <login-url>]
+  node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id 4267
   node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 (--task-id 475 | --task-title <title>) --sheet-task-id <任务ID> [--state <state.json>] [--tasks-dir tasks] [--skip-workspace] [--skip-trajectory] [--keep-existing] [--runs 1702,1701]
   node skills/qc-eval/scripts/fetch_38_platform.js find-project (--task-id 475 | --task-title <title>) [--projects 230-270|256] [--state <state.json>]
 
@@ -75,7 +92,8 @@ notes:
   auth-from-chrome copies volcengine cookies from the local Chrome profile (Windows VSS / macOS Keychain / Linux).
   If cookie export fails, it falls back to auth-login (headed Playwright window).
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
-  collect reads task/model rows, per-run evaluation/audit data, workspace zip, and session trajectory JSON.`);
+  collect reads task/model rows, per-run evaluation/audit data, 下载列表, workspace zip, and session trajectory JSON.
+  G1-new: search by 任务ID on project 277, then collect the 5 model rows (模型运行 + 下载列表).`);
   process.exit(code);
 }
 
@@ -266,13 +284,74 @@ function renderTrajectoryMarkdown(run, sessionList, detailsBySession) {
   return `${lines.join('\n').trim()}\n`;
 }
 
+function latestDownloadItems(latestList) {
+  if (!latestList) return [];
+  if (Array.isArray(latestList)) return latestList;
+  return latestList.jobs || latestList.items || latestList.result || latestList.list || latestList.records || [];
+}
+
+function latestItemForRun(latestList, runId) {
+  return latestDownloadItems(latestList).find((item) => (
+    String(item.taskModelRunId || item.modelRunId || (item.modelRun && item.modelRun.taskModelRunId) || '') === String(runId)
+  )) || null;
+}
+
+async function fetchLatestDownloadList(ctx, statePath, taskId, runIds, taskDir) {
+  const data = {
+    taskId: Number(taskId),
+    taskModelRunIds: runIds.map((id) => Number(id)),
+  };
+  const result = await postAction(ctx, statePath, DOWNLOAD_LIST_ACTION, data);
+  writeJSON(path.join(taskDir, 'download_list.json'), {
+    action: DOWNLOAD_LIST_ACTION,
+    data,
+    result,
+    saved_at: new Date().toISOString(),
+  });
+  const items = latestDownloadItems(result);
+  console.log(`==> download list: ${items.length} item(s)`);
+  for (const item of items) {
+    console.log(`   run ${item.taskModelRunId || item.modelRunId} status=${item.status || item.workspaceStatus || ''} ready=${item.downloadReady} file=${item.fileName || ''}`);
+  }
+  return result;
+}
+
+async function downloadEvaluationAttachments(evaluation, runDir, opts) {
+  const attachments = (evaluation && evaluation.evaluation && evaluation.evaluation.attachments) || [];
+  if (!attachments.length) return;
+  const outDir = path.join(runDir, 'evaluation_attachments');
+  ensureDir(outDir);
+  writeJSON(path.join(outDir, 'attachments.json'), attachments);
+  for (const [index, att] of attachments.entries()) {
+    const url = att.previewUrl || att.downloadUrl || att.url;
+    if (!url) continue;
+    const ext = path.extname(att.fileName || '') || '.bin';
+    const name = sanitize(`${String(index).padStart(2, '0')}_${att.fileName || att.id || 'file'}`) || `file${index}${ext}`;
+    await downloadTo(url, path.join(outDir, name), opts.keepExisting);
+  }
+}
+
 async function fetchWorkspaceZip(ctx, statePath, run, runDir, opts) {
   const runId = run.modelRun.taskModelRunId;
   const workspaceDir = path.join(runDir, 'workspace');
   ensureDir(workspaceDir);
-  let job = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelWorkspaceDownloadStart', { taskModelRunId: runId });
+  const latestItem = latestItemForRun(opts.latestDownloadList, runId);
+  if (latestItem) {
+    writeJSON(path.join(workspaceDir, 'latest_list_item.json'), latestItem);
+  }
+
+  let job = latestItem;
+  const latestUrl = latestItem && (latestItem.downloadUrl || latestItem.url || latestItem.packageUrl);
+  if (latestUrl) {
+    const fileName = sanitize(latestItem.fileName || `${run.task.id}-${runId}-${run.modelRun.codeName}.zip`);
+    return downloadTo(latestUrl, path.join(workspaceDir, fileName), opts.keepExisting);
+  }
+
+  if (!job || !job.jobId || latestItem && latestItem.downloadReady === false && !latestItem.jobId) {
+    job = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelWorkspaceDownloadStart', { taskModelRunId: runId });
+  }
   const started = Date.now();
-  while (!job.downloadReady && !['completed', 'failed'].includes(job.status)) {
+  while (job && !job.downloadReady && !['completed', 'failed'].includes(job.status)) {
     if (Date.now() - started > opts.timeoutMs) {
       throw new Error(`workspace download timed out for run ${runId}, job ${job.jobId}`);
     }
@@ -283,8 +362,8 @@ async function fetchWorkspaceZip(ctx, statePath, run, runDir, opts) {
     });
     console.log(`   [workspace] run ${runId} ${job.status}/${job.phase} ${job.progressPct || 0}%`);
   }
-  if (!job.downloadReady) {
-    throw new Error(`workspace package failed for run ${runId}: ${job.errorType || ''} ${job.errorMessage || ''}`);
+  if (!job || !job.downloadReady) {
+    throw new Error(`workspace package failed for run ${runId}: ${(job && job.errorType) || ''} ${(job && job.errorMessage) || ''}`);
   }
   writeJSON(path.join(workspaceDir, 'download_job.json'), job);
   const got = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelWorkspaceDownloadGet', {
@@ -294,6 +373,148 @@ async function fetchWorkspaceZip(ctx, statePath, run, runDir, opts) {
   writeJSON(path.join(workspaceDir, 'download_url.json'), { ...got, saved_at: new Date().toISOString() });
   const fileName = sanitize(job.fileName || `${run.task.id}-${runId}-${run.modelRun.codeName}.zip`);
   return downloadTo(got.downloadUrl, path.join(workspaceDir, fileName), opts.keepExisting);
+}
+
+async function fetchDownloadList(ctx, statePath, run, runDir, opts) {
+  const runId = run.modelRun.taskModelRunId;
+  const outPath = path.join(runDir, 'download_list.json');
+  const latestItem = latestItemForRun(opts.latestDownloadList, runId);
+  if (latestItem) {
+    writeJSON(outPath, { action: DOWNLOAD_LIST_ACTION, item: latestItem, saved_at: new Date().toISOString() });
+    console.log(`   [download-list] run ${runId} ${latestItem.status || latestItem.phase || 'ok'}`);
+    return latestItem;
+  }
+  const result = await postAction(ctx, statePath, DOWNLOAD_LIST_ACTION, {
+    taskId: Number(run.task && run.task.id),
+    taskModelRunIds: [Number(runId)],
+  });
+  writeJSON(outPath, { action: DOWNLOAD_LIST_ACTION, result, saved_at: new Date().toISOString() });
+  console.log(`   [download-list] ${DOWNLOAD_LIST_ACTION} ok`);
+  return result;
+}
+
+async function discoverDownloadList(opts) {
+  const projectId = Number(opts.project || 277);
+  const taskId = opts['task-id'] || opts['sheet-task-id'];
+  if (!taskId) usage();
+  const statePath = path.resolve(opts.state || DEFAULT_STATE);
+  if (!fs.existsSync(statePath)) {
+    throw new Error(`state file not found: ${statePath}; run auth-from-chrome first`);
+  }
+  const outDir = path.resolve(
+    opts['tasks-dir'] || path.join(REPO_ROOT, 'tasks'),
+    String(taskId),
+    opts['output-subdir'] || 'ark_g1',
+  );
+  ensureDir(outDir);
+
+  const browser = await chromium.launch({ headless: true });
+  const ctx = await browser.newContext({ storageState: statePath });
+  const page = await ctx.newPage();
+  const calls = [];
+  page.on('request', (req) => {
+    const url = req.url();
+    if (!url.includes('/api/top/ark/') && !url.includes('tos-cn-beijing') && !url.includes('download')) return;
+    const action = url.split('/').pop().split('?')[0];
+    calls.push({
+      action,
+      url: url.slice(0, 300),
+      method: req.method(),
+      postData: req.postData(),
+    });
+  });
+
+  const url = `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/${projectId}/task/${taskId}`;
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await sleep(4000);
+  await page.screenshot({ path: path.join(outDir, '_discover_task.png'), fullPage: true });
+
+  const labels = await page.evaluate(() => {
+    const nodes = Array.from(document.querySelectorAll('button, a, [role="button"], span, div'));
+    return nodes
+      .map((el) => ({
+        tag: el.tagName,
+        text: (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+        cls: String(el.className || '').slice(0, 120),
+      }))
+      .filter((n) => n.text && /下载|模型运行|workspace|Workspace/i.test(n.text))
+      .slice(0, 80);
+  });
+  console.log(`==> download-related labels: ${labels.length}`);
+  for (const item of labels) console.log(`   [${item.tag}] ${item.text}`);
+
+  const locators = page.locator('text=下载列表');
+  const count = await locators.count();
+  console.log(`==> locator 下载列表 count=${count}`);
+  const clickResults = [];
+  for (let i = 0; i < Math.min(count, 5); i++) {
+    const before = calls.length;
+    try {
+      await locators.nth(i).click({ timeout: 5000 });
+      await sleep(2500);
+      await page.screenshot({ path: path.join(outDir, `_discover_download_${i}.png`) });
+      clickResults.push({ index: i, ok: true, newCalls: calls.length - before });
+      console.log(`   clicked 下载列表 #${i}, new network calls=${calls.length - before}`);
+      await page.keyboard.press('Escape').catch(() => {});
+      await sleep(500);
+    } catch (err) {
+      clickResults.push({ index: i, ok: false, error: String((err && err.message) || err).slice(0, 200) });
+    }
+  }
+
+  const actions = [...new Set(calls.map((c) => c.action).filter(Boolean))];
+  writeJSON(path.join(outDir, 'download_list_discover.json'), {
+    url,
+    labels,
+    clickResults,
+    actions,
+    calls,
+    saved_at: new Date().toISOString(),
+  });
+  console.log(`==> after click APIs: ${actions.join(', ') || '(none)'}`);
+  console.log(`==> wrote ${rel(path.join(outDir, 'download_list_discover.json'))}`);
+  await browser.close();
+}
+
+async function probeTaskDetailNetwork(ctx, projectId, taskId, taskDir) {
+  const page = await ctx.newPage();
+  const calls = [];
+  page.on('request', (req) => {
+    const url = req.url();
+    if (!url.includes('/api/top/ark/')) return;
+    const action = url.split('/').pop().split('?')[0];
+    calls.push({
+      action,
+      method: req.method(),
+      postData: req.postData(),
+    });
+  });
+  const urls = [
+    `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/${projectId}/task/${taskId}`,
+    `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}?tab=review`,
+  ];
+  try {
+    await page.goto(urls[0], { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await sleep(4000);
+  } catch (err) {
+    calls.push({ error: String((err && err.message) || err), url: urls[0] });
+    try {
+      await page.goto(urls[1], { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await sleep(3000);
+    } catch (err2) {
+      calls.push({ error: String((err2 && err2.message) || err2), url: urls[1] });
+    }
+  }
+  const actions = [...new Set(calls.map((c) => c.action).filter(Boolean))];
+  writeJSON(path.join(taskDir, 'task_detail_network.json'), {
+    urls,
+    actions,
+    calls,
+    saved_at: new Date().toISOString(),
+  });
+  console.log(`==> task-detail APIs: ${actions.join(', ') || '(none captured)'}`);
+  await page.close();
+  return calls;
 }
 
 async function collectOneRun(ctx, statePath, run, taskDir, opts) {
@@ -310,6 +531,20 @@ async function collectOneRun(ctx, statePath, run, taskDir, opts) {
   } else {
     const evaluation = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelEvaluationGet', { taskModelRunId: runId });
     writeJSON(evaluationPath, evaluation);
+  }
+  try {
+    const evaluation = readJSON(evaluationPath);
+    await downloadEvaluationAttachments(evaluation, runDir, opts);
+  } catch (err) {
+    console.warn(`   [attachments] ${err.message}`);
+  }
+
+  const auditPath = path.join(runDir, 'audit.json');
+  if (opts.keepExisting && fs.existsSync(auditPath)) {
+    console.log(`   [keep] ${rel(auditPath)}`);
+  } else {
+    const audit = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelAuditGet', { taskModelRunId: runId });
+    writeJSON(auditPath, audit);
   }
 
   const workspaceBrowserPath = path.join(runDir, 'workspace_browser.json');
@@ -354,6 +589,10 @@ async function collectOneRun(ctx, statePath, run, taskDir, opts) {
     console.log('   [trajectory] skipped by --skip-trajectory');
   }
 
+  if (!opts.skipDownloadList) {
+    await fetchDownloadList(ctx, statePath, run, runDir, opts);
+  }
+
   if (!opts.skipWorkspace) {
     await fetchWorkspaceZip(ctx, statePath, run, runDir, opts);
   }
@@ -368,16 +607,19 @@ async function collect(opts) {
   const tasksDir = path.resolve(opts['tasks-dir'] || path.join(REPO_ROOT, 'tasks'));
   const taskKeyword = opts['task-id'] ? String(opts['task-id']) : opts['task-title'];
   if (!taskKeyword) usage();
-  const sheetTaskId = opts['sheet-task-id'];
+  const sheetTaskId = opts['sheet-task-id'] || opts['task-id'];
   if (!sheetTaskId) {
-    throw new Error('missing --sheet-task-id <任务ID>; 38期本地目录必须使用源表任务ID，不能用行号或平台任务ID兜底');
+    throw new Error('missing --task-id or --sheet-task-id <任务ID>; 本地目录必须使用源表任务ID');
   }
   const localId = String(sheetTaskId);
-  const taskDir = path.join(tasksDir, localId, OUTPUT_SUBDIR);
+  const outputSubdir = opts['output-subdir'] || DEFAULT_OUTPUT_SUBDIR;
+  const taskDir = path.join(tasksDir, localId, outputSubdir);
+  const g1Config = loadG1Config();
   const wantedRuns = opts.runs ? new Set(String(opts.runs).split(',').map((s) => s.trim()).filter(Boolean)) : null;
   const runOpts = {
     skipWorkspace: Boolean(opts['skip-workspace']),
     skipTrajectory: Boolean(opts['skip-trajectory']),
+    skipDownloadList: Boolean(opts['skip-download-list']),
     keepExisting: Boolean(opts['keep-existing']),
     pollMs: Number(opts['poll-ms'] || 2500),
     timeoutMs: Number(opts['timeout-ms'] || 10 * 60 * 1000),
@@ -428,6 +670,22 @@ async function collect(opts) {
       writeJSON(modelRunsPath, { query: { projectId, taskKeyword, localId }, ...list, result: rows });
     }
 
+    const expectedCodes = opts['expect-platform-codes']
+      ? String(opts['expect-platform-codes']).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+      : [];
+    if (expectedCodes.length) {
+      const got = rows.map((r) => String((r.modelRun && r.modelRun.codeName) || '').toLowerCase());
+      const missing = expectedCodes.filter((code) => !got.includes(code));
+      const extra = got.filter((code) => code && !expectedCodes.includes(code));
+      console.log(`==> expected models: ${expectedCodes.join(', ')}`);
+      console.log(`==> got models: ${got.join(', ') || '(none)'}`);
+      if (missing.length || extra.length) {
+        const msg = `model set mismatch missing=${missing.join(',') || '-'} extra=${extra.join(',') || '-'}`;
+        if (opts['allow-partial']) console.warn(`   [warn] ${msg}`);
+        else throw new Error(`${msg}; pass --allow-partial to continue`);
+      }
+    }
+
     const taskPath = path.join(taskDir, 'task.json');
     if (runOpts.keepExisting && fs.existsSync(taskPath)) {
       console.log(`   [keep] ${rel(taskPath)}`);
@@ -438,9 +696,39 @@ async function collect(opts) {
 
     console.log(`==> task ${taskId}: ${rows[0].task.title}`);
     console.log(`==> runs: ${rows.map((r) => `${r.modelRun.taskModelRunId}/${r.modelRun.codeName}/${r.modelRun.realName}`).join(', ')}`);
+    if (!opts['skip-detail-probe']) {
+      await probeTaskDetailNetwork(ctx, projectId, taskId, taskDir);
+    }
+    if (!runOpts.skipDownloadList) {
+      runOpts.latestDownloadList = await fetchLatestDownloadList(
+        ctx,
+        statePath,
+        taskId,
+        rows.map((r) => r.modelRun.taskModelRunId),
+        taskDir,
+      );
+    }
+    const modelMap = {};
     for (const run of rows) {
+      const sheetModel = g1SheetModel(run.modelRun.codeName, g1Config);
+      if (sheetModel) {
+        const meta = ((g1Config && g1Config.models) || []).find((m) => m.sheet === sheetModel) || {};
+        modelMap[sheetModel] = {
+          code: meta.code || '',
+          platform: run.modelRun.codeName,
+          real_name: run.modelRun.realName,
+          task_model_run_id: run.modelRun.taskModelRunId,
+          audit_url: `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${run.modelRun.taskModelRunId}?mode=audit`,
+        };
+      }
       await collectOneRun(ctx, statePath, run, taskDir, runOpts);
     }
+    writeJSON(path.join(tasksDir, localId, 'model_map.json'), {
+      period: (g1Config && g1Config.period) || '',
+      project_id: projectId,
+      models: modelMap,
+      generated_at: new Date().toISOString(),
+    });
     writeJSON(path.join(taskDir, '_summary.json'), {
       sheet_task_id: localId,
       ark_task_id: taskId,
@@ -450,6 +738,7 @@ async function collect(opts) {
         task_model_run_id: r.modelRun.taskModelRunId,
         code_name: r.modelRun.codeName,
         real_name: r.modelRun.realName,
+        sheet_model: g1SheetModel(r.modelRun.codeName, g1Config),
         path: rel(path.join(taskDir, `${r.modelRun.taskModelRunId}__${sanitize(r.modelRun.codeName)}`)),
       })),
       generated_at: new Date().toISOString(),
@@ -832,6 +1121,101 @@ async function authLogin(opts) {
   }
 }
 
+async function discoverAuditForm(opts) {
+  const projectId = Number(opts.project || 277);
+  const runId = opts['run-id'] || opts['task-model-run-id'] || opts['task-id'];
+  if (!runId) usage();
+  const statePath = path.resolve(opts.state || DEFAULT_STATE);
+  if (!fs.existsSync(statePath)) {
+    throw new Error(`state file not found: ${statePath}; run auth-from-chrome first`);
+  }
+  const outDir = path.resolve(
+    opts['tasks-dir'] || path.join(REPO_ROOT, 'tasks'),
+    opts['sheet-task-id'] ? String(opts['sheet-task-id']) : '4267',
+    opts['output-subdir'] || 'ark_g1',
+  );
+  ensureDir(outDir);
+
+  const browser = await chromium.launch({ headless: true });
+  const ctx = await browser.newContext({ storageState: statePath });
+  const page = await ctx.newPage();
+  const calls = [];
+  page.on('request', (req) => {
+    const url = req.url();
+    if (!url.includes('/api/top/ark/')) return;
+    calls.push({
+      action: url.split('/').pop().split('?')[0],
+      method: req.method(),
+      postData: req.postData(),
+    });
+  });
+  const url = `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${runId}?mode=audit`;
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await sleep(5000);
+  await page.screenshot({ path: path.join(outDir, `_audit_form_${runId}.png`), fullPage: true });
+  fs.writeFileSync(path.join(outDir, `_audit_form_${runId}.html`), await page.content());
+
+  const snapshot = await page.evaluate(() => {
+    const textOf = (el) => ((el && (el.innerText || el.textContent)) || '').replace(/\s+/g, ' ').trim();
+    const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,.arco-form-item-label,label,.arco-radio-group'))
+      .map((el) => ({ tag: el.tagName, cls: String(el.className || '').slice(0, 120), text: textOf(el).slice(0, 400) }))
+      .filter((x) => x.text)
+      .slice(0, 120);
+    const radios = Array.from(document.querySelectorAll('.arco-radio, [role="radio"], input[type="radio"]')).map((el) => ({
+      text: textOf(el).slice(0, 200) || (el.getAttribute && el.getAttribute('value')) || '',
+      checked: !!(el.checked || (el.getAttribute && el.getAttribute('aria-checked') === 'true')),
+      cls: String(el.className || '').slice(0, 120),
+    }));
+    const radioGroups = Array.from(document.querySelectorAll('.arco-radio-group, [role="radiogroup"], .arco-form-item')).map((g) => ({
+      cls: String(g.className || '').slice(0, 160),
+      text: textOf(g).slice(0, 800),
+    })).filter((g) => g.text).slice(0, 40);
+    const textareas = Array.from(document.querySelectorAll('textarea, .arco-textarea')).map((el) => ({
+      placeholder: el.getAttribute('placeholder') || '',
+      value: (el.value || textOf(el)).slice(0, 300),
+      maxLength: el.getAttribute('maxlength') || '',
+    }));
+    const selects = Array.from(document.querySelectorAll('.arco-select, select')).map((el) => ({
+      text: textOf(el).slice(0, 400),
+      placeholder: el.getAttribute('placeholder') || el.getAttribute('aria-placeholder') || '',
+    }));
+    const checkboxes = Array.from(document.querySelectorAll('.arco-checkbox, input[type="checkbox"]')).map((el) => ({
+      text: textOf(el.parentElement || el).slice(0, 200),
+      checked: !!(el.checked || (el.getAttribute && el.getAttribute('aria-checked') === 'true')),
+    }));
+    const buttons = Array.from(document.querySelectorAll('button, .arco-btn')).map((el) => textOf(el)).filter(Boolean).slice(0, 40);
+    const bodyText = textOf(document.body).slice(0, 8000);
+    return { headings, radios, radioGroups, textareas, selects, checkboxes, buttons, bodyText };
+  });
+
+  const audit = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelAuditGet', {
+    taskModelRunId: Number(runId),
+  });
+  writeJSON(path.join(outDir, `audit_get_${runId}.json`), audit);
+
+  const payload = {
+    url,
+    projectId,
+    runId: Number(runId),
+    actions: [...new Set(calls.map((c) => c.action).filter(Boolean))],
+    calls,
+    snapshot,
+    saved_at: new Date().toISOString(),
+  };
+  writeJSON(path.join(outDir, `audit_form_${runId}.json`), payload);
+  console.log(`==> audit url ${url}`);
+  console.log(`==> APIs: ${payload.actions.join(', ') || '(none)'}`);
+  console.log(`==> radioGroups=${snapshot.radioGroups.length} radios=${snapshot.radios.length} textareas=${snapshot.textareas.length} selects=${snapshot.selects.length}`);
+  for (const g of snapshot.radioGroups.slice(0, 15)) {
+    console.log(`   [group] ${g.text.slice(0, 160)}`);
+  }
+  for (const t of snapshot.textareas) {
+    console.log(`   [textarea] placeholder=${JSON.stringify(t.placeholder)} value=${JSON.stringify(t.value.slice(0, 80))}`);
+  }
+  console.log(`==> wrote ${rel(path.join(outDir, `audit_form_${runId}.json`))}`);
+  await browser.close();
+}
+
 async function authFromChrome(opts) {
   try {
     if (process.platform === 'win32') authFromChromeWindows(opts);
@@ -849,6 +1233,8 @@ async function main() {
   if (opts.cmd === 'auth-login') return authLogin(opts);
   if (opts.cmd === 'find-project') return findProject(opts);
   if (opts.cmd === 'collect') return collect(opts);
+  if (opts.cmd === 'discover-download') return discoverDownloadList(opts);
+  if (opts.cmd === 'discover-audit') return discoverAuditForm(opts);
   usage();
 }
 

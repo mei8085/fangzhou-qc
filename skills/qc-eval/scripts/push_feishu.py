@@ -148,20 +148,21 @@ _TEXT_HEADER_ALWAYS = [
     "不可验证原因",
     "分类是否正确",
 ]
-_REDLINE_HEADERS = ["红线问题"]
+_REDLINE_HEADERS = ["红线问题", "题目红线问题", "题目红线备注"]
 _TEXT_HEADER_TAIL = ["质检人"]
 _NORMAL_TASK_HEADERS = ["是否正常题目"]
 _SUPPLIER_HEADERS = ["所属商", "所述商"]
 # 期数相关的可选文字列（有就写、没就跳）。
 _TEXT_HEADER_OPTIONAL = [
     "一次质检平台审核理由（按模型）",
+    "一次质检是否完成",
     "0614C对比GLM 5.2 模型差异（轨迹/产物）pattern简述",
     "0614C完成质量实际打分",
     "GLM5.2完成质量打分",
     "机器质检结果是否正确",
     "错误原因",
 ]
-_MODEL_TEXT_SUFFIXES = ["反馈质量（作业质量）", "质量备注"]
+_MODEL_TEXT_SUFFIXES = ["反馈质量（作业质量）", "质量备注", "脏数据标签", "脏数据标签理由"]
 _MODEL_IMAGE_SUFFIX = "验证截图"
 READ_ONLY_HEADERS = {"是否结算"}
 

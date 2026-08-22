@@ -11,10 +11,10 @@
 
 ## 配置依赖
 
-- 数据源：38 期从飞书正式表 `sheet=uBlwx4` 同步到本地 xlsx（默认仓库 `data/众测质检38.xlsx`；若存在 `D:/fz/fangzhou/众测质检38.xlsx` 则沿用），具体流程以 `skills/qc-eval/SKILL.md` 为准
+- 数据源：G1-new 从本地 `docs/G1-new.xlsx` 按任务ID读取；交付回写飞书 `sheet=cHr9N5`。具体流程以 `skills/qc-eval/SKILL.md` 为准
 - Python 3 + Pillow + openpyxl：`pip3 install Pillow openpyxl`（命令优先 `python3`，Windows 可 `python`）
 - Node.js + Playwright：在 `skills/qc-eval/` 内 `npm install` + 一次 `node node_modules/playwright/cli.js install chromium`
-- Ark 平台登录态：`node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome`（失败则 `auth-login`）导出到 `skills/qc-eval/.ark_platform_state.json`（gitignored）
+- Ark 平台登录态：`node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome`（失败则 `auth-login`）导出到 `skills/qc-eval/.ark_platform_state.json`（gitignored）
 
 ## 多 CLI 兼容
 

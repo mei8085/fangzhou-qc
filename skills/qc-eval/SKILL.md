@@ -1,44 +1,59 @@
 ﻿---
 name: qc-eval
-description: 38 期方舟 coding 众测质检工作流。默认从飞书 sheet=uBlwx4 同步到仓库 data/众测质检38.xlsx（Windows 若仍存在 D:/fz/fangzhou/众测质检38.xlsx 则继续用它），按 38 期规则评出题质量与反馈质量，使用 fetch_38_platform.js 采集 Ark 平台 4 个模型运行、Workspace、Session 轨迹、评测打分与审核信息，输出 delivery/<TASK_ID>/，并通过 push_38_feishu.py 或 push_feishu.py 显式回写 38 期飞书表。适用于 Cursor、Claude Code、Codex，以及 Windows / macOS / Linux。
+description: G1-new 方舟 coding 众测质检工作流。质检题目从本地 docs/G1-new.xlsx 按任务ID读取，不从飞书同步源表。标注与产物从 Ark 平台 project 277 按任务ID搜索后进入任务详情采集 5 个模型（S347/harrier、S20/grotto、S53/ferrite、S60/estuary、S1075/dendrite）的模型运行与下载列表。交付回写飞书 sheet=cHr9N5。适用于 Cursor、Claude Code、Codex，以及 Windows / macOS / Linux。
 ---
 
-# 方舟 coding 众测质检 - 38 期工作流技能
+# 方舟 coding 众测质检 - G1-new 工作流技能
 
 唯一权威说明文件。`CLAUDE.md`、`AGENTS.md`、`.cursor/rules/qc-eval.mdc`、`.cursor/skills/qc-eval/SKILL.md` 只做入口指引，不复制流程。
 
 配套规范：
 
-- 新规则整理：`spec/36期质检新规则.md`（38 期继续沿用这套质量口径）
+- 新规则整理：`spec/36期质检新规则.md`（G1-new 继续沿用这套质量口径）
 - 脏数据标签与标准：`spec/Coding场景脏数据标签与标准.md`（平台反馈质检的脏数据标签按此执行）
 - 兼容入口：`spec/方舟coding众测质检流程及规范.md` 已更新为同一套质量规则
 
-## 38 期默认配置
+## G1-new 默认配置
 
-- 飞书源表：`https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=uBlwx4`
-- sheet_id：`uBlwx4`
-- 默认表名：`38期coding质检`
-- 本地源表：仓库内 `data/众测质检38.xlsx`（`data/` 已 gitignore）。若本机仍存在 Windows 旧路径 `D:/fz/fangzhou/众测质检38.xlsx`，脚本会优先使用它。可用环境变量 `QC_SOURCE_XLSX` 或 `--out` / `--source` 覆盖。
-- 本地任务目录名：必须使用源表 `任务ID`，例如 `任务ID` 列里的真实 ID；不再使用行号编号
-- Ark 平台项目：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/256?tab=review`
-- Ark 平台采集脚本：`node skills/qc-eval/scripts/fetch_38_platform.js`
-- 飞书同步脚本：`python3 skills/qc-eval/scripts/sync_source_from_feishu.py` 或 `python3 skills/qc-eval/scripts/sync_38_source_from_feishu.py`
-- 交付 xlsx：`python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 38期`
-- 飞书回写：默认只允许执行 `python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run` 预检；只有用户明确指令“上传/回写/写入飞书”后，才允许执行带 `--write` 的命令。
+- 本地源表：`docs/G1-new.xlsx`（`docs/` 已 gitignore）。可用环境变量 `QC_SOURCE_XLSX` 或 `--source` 覆盖。
+- 源表不从飞书同步。飞书只作为交付回写目标。
+- 飞书交付表：`https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=cHr9N5`
+- sheet_id：`cHr9N5`
+- 本地任务目录名：必须使用源表 `任务ID`，例如 `4267`
+- Ark 平台项目：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277?tab=review`
+- 任务详情：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/277/task/<任务ID>`
+- 平台检索：以任务ID搜索；任务详情页有「模型运行」和「下载列表」两个 tab。下载列表走 `CaseBffV1CrowdtestTaskModelWorkspaceDownloadLatestList`。
+- 模型对应：
+
+| 表头模型 | 代号 | 平台 codeName |
+| --- | --- | --- |
+| 【G1】S347 | S347 | harrier |
+| 【G1】S20 | S20 | grotto |
+| 【G1】S53 | S53 | ferrite |
+| 【G1】S60 | S60 | estuary |
+| 【G1】S1075 | S1075 | dendrite |
+
+- 配置文件：`skills/qc-eval/config/g1.json`
+- 平台质检表单模版：`skills/qc-eval/config/g1_audit_form.json`（从 [review/12232?mode=audit](https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277/review/12232?mode=audit) 读取）
+- 质检后填写文件：`delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md` 与 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`
+- Ark 平台采集脚本：`node skills/qc-eval/scripts/fetch_g1_platform.js`
+- 本地任务探测：`python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id <任务ID>`
+- 交付 xlsx：`python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period G1-new`
+- 飞书回写：默认只允许执行 `python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run` 预检；只有用户明确指令“上传/回写/写入飞书”后，才允许执行带 `--write` 的命令。
 
 ## 运行环境
 
 同时支持 Cursor、Claude Code、Codex；操作系统为 Windows（含 Git Bash）、macOS、Linux。
 
 - Python 3：下列命令写 `python3`。Windows 若只有 `python`，把命令中的 `python3` 换成 `python`。也可用 `QC_PYTHON` 指定解释器。
-- 源表路径不要写死盘符。默认见上文「本地源表」；Cursor / macOS 不要再假定 `D:/fz/fangzhou/` 存在。
-- Ark 登录态：`auth-from-chrome` 会从本机 Chrome 导出 volcengine cookie（Windows 用 VSS，macOS 用 Keychain，Linux 用 libsecret）。导出失败时自动打开有头浏览器，改为 `auth-login`。也可直接跑 `node skills/qc-eval/scripts/fetch_38_platform.js auth-login`。
+- 源表路径不要写死盘符。默认见上文「本地源表」。
+- Ark 登录态：`auth-from-chrome` 会从本机 Chrome 导出 volcengine cookie（Windows 用 VSS，macOS 用 Keychain，Linux 用 libsecret）。导出失败时自动打开有头浏览器，改为 `auth-login`。也可直接跑 `node skills/qc-eval/scripts/fetch_g1_platform.js auth-login`。
 - Cursor 跑 Playwright / 有头登录 / 平台采集时需要本机网络，并批准相应权限；有头登录会弹出 Chrome/Chromium 窗口，需人工完成登录。
 - `lark-cli` 必须在 PATH 中（macOS/Linux 为 `lark-cli`，Windows 可为 `lark-cli.exe`）。
 
 ## 新规则口径
 
-38 期以用户提供的新规则为准，不沿用旧期数历史口径。
+G1-new 以用户提供的新规则为准，不沿用更早期历史口径。质量判断仍按 `spec/36期质检新规则.md`。
 
 ### 出题质量
 
@@ -69,7 +84,7 @@ description: 38 期方舟 coding 众测质检工作流。默认从飞书 sheet=u
 | 合格 | 打分大体合理但存在部分偏差或不完善；或打分、备注、佐证有明显问题但未触发红线。 |
 | 不合格 | 反馈完全不可信，或触发红线规则。 |
 
-38 期飞书列“反馈质量（作业质量）”下拉只有 `高质量`、`合格`、`不合格` 三个选项，禁止写 `红线`。若模型反馈触发反馈质量红线或脏数据标签，该模型“反馈质量（作业质量）”填 `不合格`；具体红线类型写到“红线问题”列，逐模型平台质检里的“脏数据标签”写对应标签，例如 `trace和反馈结果明显不一致`。
+G1-new 飞书列“反馈质量（作业质量）”下拉只有 `高质量`、`合格`、`不合格` 三个选项，禁止写 `红线`。若模型反馈触发反馈质量红线或脏数据标签，该模型“反馈质量（作业质量）”填 `不合格`；题目红线写到“题目红线问题 / 题目红线备注”，逐模型“脏数据标签 / 脏数据标签理由”写对应标签，例如 `trace和反馈结果明显不一致`。
 
 红线仍需明确证据。截图中明确可见的出题质量红线补充包括：从 Openbenchmark 上找题、用网页生成 PPT 或旅游攻略等静态展示性页面。
 
@@ -93,39 +108,35 @@ description: 38 期方舟 coding 众测质检工作流。默认从飞书 sheet=u
 - `AI 打分 / AI 评价`：反馈有 AI 打分口癖，或轨迹含模型自评、prompt 内置打分指令、产物里有 AI 打分文件。
 - `敷衍恶意打分`：打分理由为空或极短、标准前后不一、不同板块结论相悖、非关联维度连带扣分、评分与实际产物明显不符；L2 还包括多模型理由高度雷同、未测完全部模型就提交、各模型分数一致但实际差异明显。
 - `题目红线（prompt 简单 / VLM 错配）`：prompt 过于简单或模糊、纯题库题、VLM 错配、纯生图任务、全部模型工具调用轮次 < 10、同任务给各模型 prompt 不一致；补充红线包括毫无意义题目、非代码题、题目不合理、非本人场景、静态展示性页面。
-- `低质量任务` 是任务质量问题，但不是脏数据标签；例如 4 模型综合分差 <= 1 且均分 >= 9，或低价值任务。
+- `低质量任务` 是任务质量问题，但不是脏数据标签；例如 5 模型综合分差 <= 1 且均分 >= 9，或低价值任务。
 
 ## 标准流程
 
-1. 同步 38 期源表。
+1. 确认本地源表存在，并按任务ID定位题目。不要从飞书同步源表。
 
 ```bash
-python3 skills/qc-eval/scripts/sync_source_from_feishu.py
+python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id 4267
 ```
 
-2. 确认源表 `任务ID` 列有值，并使用该 `任务ID` 作为 `tasks/` 和 `delivery/` 的子目录名；禁止使用行号作为本地工作编号。
-
-```bash
-python3 skills/qc-eval/scripts/probe_38_task_ids.py --task-title "<任务名>"
-```
+2. 使用该 `任务ID` 作为 `tasks/` 和 `delivery/` 的子目录名；禁止使用行号作为本地工作编号。同一任务ID也是 Ark 平台搜索关键字。
 
 3. 首次使用 Ark 平台前导出登录态。
 
 ```bash
-node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome
+node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome
 # cookie 导出失败时（常见于 macOS Chrome v20 / Cursor）改为人工登录：
-node skills/qc-eval/scripts/fetch_38_platform.js auth-login
+node skills/qc-eval/scripts/fetch_g1_platform.js auth-login
 ```
 
-4. 采集 Ark 平台材料。必须传 `--sheet-task-id <任务ID>`，让平台材料落到源表 `任务ID` 对应的本地目录。
+4. 采集 Ark 平台材料。按任务ID搜索 project 277，进入任务详情，采集 5 个模型的模型运行、评测、下载列表、Workspace 与轨迹。
 
 ```bash
-node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 --task-title "<任务名>" --sheet-task-id <任务ID>
-# 或
-node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 --task-id <平台任务ID> --sheet-task-id <任务ID>
+node skills/qc-eval/scripts/fetch_g1_platform.js collect --task-id <任务ID>
 ```
 
-脚本会保存模型运行列表、任务详情、评测详情、Workspace Browser、Workspace zip、ByteHouse Session 列表与 Session 轨迹。输出目录为 `tasks/<任务ID>/ark38/`。
+脚本默认 `--project 277`，本地目录与平台搜索都用同一个任务ID。输出目录为 `tasks/<任务ID>/ark_g1/`，并写 `tasks/<任务ID>/model_map.json`。
+
+若 5 个平台 codeName 与 `harrier,grotto,ferrite,estuary,dendrite` 对不上，脚本会停住；只有确认可以部分采集时才加 `--allow-partial`。采集过程中若「下载列表」API 对不上，先停下来与人工核对，不要自行发明下载方式。
 
 5. 人工质检并写 `tasks/<任务ID>/qc_cells.json`。
 
@@ -139,90 +150,88 @@ node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 --task-id
     "reviewer": "质检人",
     "supplier": "所属商",
     "is_high_quality_task": "否",
-    "is_normal_task": "是",
     "prompt_quality": "高质量",
-    "prompt_quality_note": "按 38 期出题质量规则说明完整性、经济价值、评测价值。",
+    "prompt_quality_note": "按出题质量规则说明完整性、经济价值、评测价值。",
     "verifiable": "是",
     "verifiable_reason": "",
     "category_correct": "是",
     "redline_issue": "",
+    "redline_note": "",
     "models": {
-      "<表头模型名>": {
+      "【G1】S347": {
         "rating": "高质量",
-        "screenshot": "",
-        "note": "按 38 期反馈质量规则说明标注人打分、备注、证据、trace 与实际产物是否一致。"
+        "note": "按反馈质量规则说明标注人打分、备注、证据、trace 与实际产物是否一致。",
+        "dirty_tag": "非脏数据",
+        "dirty_tag_reason": ""
       }
     }
   }
 }
 ```
 
-表头若仍保留旧下拉值，交付脚本按表头写入；人工判断语言和备注依据必须按 38 期规则。
+`sheet.models` 的 key 必须是表头模型名：`【G1】S347`、`【G1】S20`、`【G1】S53`、`【G1】S60`、`【G1】S1075`。
 
-`sheet.models.<模型>.rating` 对应飞书列“反馈质量（作业质量）”，只能填 `高质量`、`合格`、`不合格`。触发反馈红线时也填 `不合格`，不要填 `红线`；红线原因在 `redline_issue` 和逐模型 `dirty_tag` 中体现。
+`sheet.models.<模型>.rating` 对应飞书列“反馈质量（作业质量）”，只能填 `高质量`、`合格`、`不合格`。触发反馈红线时也填 `不合格`，不要填 `红线`；红线原因在 `redline_issue` / `redline_note` 和逐模型 `dirty_tag` 中体现。
 
-`is_high_quality_task` 对应飞书列“是否是高质量题目”，必须填“是/否”；该字段按模型反馈质量的整体情况判断，不按题目本身经济价值或评测价值判断。通常只有所有模型反馈质量均为“高质量”时填“是”；任一模型反馈质量为“合格”或“不合格”时填“否”。若未写，交付脚本会按 `sheet.models` 中 4 个模型反馈质量自动推导，无法推导时保持空白并由自检拦截。
+`is_high_quality_task` 对应飞书列“是否是高质量题目”，必须填“是/否”；该字段按模型反馈质量的整体情况判断，不按题目本身经济价值或评测价值判断。通常只有所有模型反馈质量均为“高质量”时填“是”；任一模型反馈质量为“合格”或“不合格”时填“否”。若未写，交付脚本会按 `sheet.models` 中 5 个模型反馈质量自动推导，无法推导时保持空白并由自检拦截。
 
 `prompt_quality` 对应飞书列“任务质量（题目质量）”，按题目本身的完整性、经济价值、评测价值和可验证性判断；它可以与“是否是高质量题目”不一致，例如题目本身为“高质量”，但模型反馈整体未达到高质量时，“是否是高质量题目”填“否”。
 
-`is_normal_task` 对应飞书列“是否正常题目”，必须填“是/否”；若未写，交付脚本默认写“是”，仅在存在明确红线问题或题目质量为“红线/不可用”时自动写“否”。
-
-`category_correct` 对应飞书列“分类是否正确”，必须填“是/否”；判断源表 `label` 是否与任务真实类型一致，例如 Coding Agent 功能开发、迁移、Bug fix 等分类与题目目标匹配则填“是”。
+`category_correct` 对应飞书列“分类是否正确”，必须填“是/否”；判断源表 `label` 是否与任务真实类型一致。
 
 6. 生成本地交付物，并生成每个模型对应的平台质检填写文件。
 
 ```bash
-python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 38期
+python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period G1-new
 python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
 python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
 ```
 
-逐模型平台填写文件输出为 `delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md`，用于 Ark 质检页面逐模型复制填写；包含任务质量、任务质量备注、标注人反馈质量、反馈质量备注、审核理由和脏数据标签。反馈质量备注保留完整复核证据；审核理由按平台输入框示例写简洁事实结论，必须包含从反馈质量备注中抽出的具体问题点，并覆盖响应是否符合任务要求、输出代码或产物是否可复核、标注人反馈与复核结果是否一致、是否触发红线或脏数据标签，不复制完整备注。需要特殊说明时，可在模型数据下写 `platform_audit_reason` 或 `audit_reason` 覆盖默认审核理由。脏数据标签按 `spec/Coding场景脏数据标签与标准.md` 判断；可在每个模型数据下写 `dirty_tag`，或在 `qc_cells.json` 的 `platform_qc.dirty_tag` 下按模型名填写。未写时，脚本默认输出“非脏数据”。
+逐模型平台填写文件输出为 `delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md` 和 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`，字段名、选项与 `skills/qc-eval/config/g1_audit_form.json` 一致，用于在 `projects/277/review/<taskModelRunId>?mode=audit` 右侧「质检」面板逐模型复制填写。表单字段为：请选择该任务的质量（高/中/低/不可用）、任务质量备注、请选择该用户的反馈质量（完全可用/部分可用/完全不可用）、反馈质量备注、审核理由、请选择脏数据标签。页面没有「非脏数据」按钮，不选标签即非脏数据。反馈质量备注保留完整复核证据；审核理由按平台输入框示例写简洁事实结论，必须包含从反馈质量备注中抽出的具体问题点，并覆盖响应是否符合任务要求、输出代码或产物是否可复核、标注人反馈与复核结果是否一致、是否触发红线或脏数据标签，不复制完整备注。需要特殊说明时，可在模型数据下写 `platform_audit_reason` 或 `audit_reason` 覆盖默认审核理由。脏数据标签按 `spec/Coding场景脏数据标签与标准.md` 判断后映射到页面选项；可在每个模型数据下写 `dirty_tag`。未写时填写文件输出「不选」。
 
 7. 回写飞书必须听用户指令：常规质检流程到 dry-run 为止，不得主动上传或回写飞书。只有用户明确要求“上传/回写/写入飞书”后，才执行 write；执行顺序仍必须先 dry-run，再 write。
 
 ```bash
-python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run
-python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --write --confirm-user-instructed
+python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
+python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-user-instructed
 ```
 
-`push_38_feishu.py` 会重新读取远端 `uBlwx4` 对应行的“任务”单元格，并与本地交付 xlsx 的任务名完全一致才允许写入。
+`push_g1_feishu.py` 会重新读取远端 `cHr9N5` 对应行的“任务”单元格，并与本地交付 xlsx 的任务名完全一致才允许写入。飞书列“一次质检平台审核理由（按模型）”按模型分行，前缀为表头模型名加平台 codeName，例如 `【G1】S347（harrier）：……`。
 
 ## 写作约束
 
 - 备注以人工质检员口吻写，不暴露脚本化过程。
 - 不使用第一人称主语，如“我跑了”“我本地”。
 - 不写工程内部路径或字段名到交付备注里，如 `qc_cells.json`、`SKILL.md`。
-- 题目质量说明只解释题目本身的完整性、经济价值、评测价值、可复核性和未达高质量的原因；不要写“是否是高质量题目填是/否”这类表字段自述，也不要写平台页面没有展示的“4 个模型总分”。
+- 题目质量说明只解释题目本身的完整性、经济价值、评测价值、可复核性和未达高质量的原因；不要写“是否是高质量题目填是/否”这类表字段自述，也不要写平台页面没有展示的“5 个模型总分”。
 - 红线必须有明确证据；只有疑似、可能、看起来像时，不判红线。
 - 质量备注建议按“标注人给执行过程 X 分、执行产物 Y 分”组织；如果页面只有总分，就写“标注人给 X 分”。后面再补一句证据是否支撑结论，避免只写“方向基本准确”这类模糊表述。
 - 反馈质量备注要围绕标注人的打分、备注、截图或材料、trace 与模型实际产物是否一致来写。
 - 平台审核理由要按页面示例写短事实结论，并写出一个具体问题点，例如“采购记录刷新后丢失”“页面缺少采购执行模块”“构建失败但标注给满分”；不能只写“存在偏差”“证据不完整”这类空泛结论。不要复制反馈质量备注全文，也不要写“任务质量判定为高”。
-- 38 期高质量反馈要求必须体现在备注里：数据是否完整、能否复现、是否有模型行为洞察、是否说明真实业务影响。
+- 高质量反馈要求必须体现在备注里：数据是否完整、能否复现、是否有模型行为洞察、是否说明真实业务影响。
 - 避免 AI 腔或模板感短评，如“偏薄”“兜底”“更稳”“方向到位”“抓得准”；改写成具体可核验的问题，例如“没有给出具体操作步骤和业务影响，支撑满分的证据还不够充分”。
 
 ## 关键约束
 
 1. 质检相关动作只走本技能列出的集中脚本，不直接调底层 API 或 lark-cli。
-2. 本仓库默认且唯一飞书目标为 `sheet=uBlwx4`。
+2. 本仓库当前默认飞书交付目标为 `sheet=cHr9N5`。源表只读本地 `docs/G1-new.xlsx`。
 3. 自动流程只生成本地文件；飞书回写只能在用户明确下达上传/回写指令后，通过显式 push 命令执行。用户只说“质检 <任务ID>”时，不得执行 `--write`。
 4. 截图必须是本人复测证据，不能复用标注人的截图；`delivery/<TASK_ID>/screenshots/` 只保留有效截图 PNG（如 `<模型>_01_cli.png`）和合成图 PNG（`<模型>_verify.png`），不要保留 `log.txt`、临时图、别名图或其他辅助文件。合成图必须按左右横向拼接原图，禁止上下纵向拼接；若只有一张有效截图，则直接复用该原图作为 `<模型>_verify.png`。
 5. `delivery/<TASK_ID>/<TASK_ID>.xlsx` 必须从空白 workbook 重建，只包含表头行和该任务行。
 6. `.ark_platform_state.json`、本地探测缓存和登录态文件不能提交。
+7. 流程脚本未调通、模型数对不上、或「下载列表」采不到时，停下来与人工核对，不要继续编造材料。
 
 ## 常用命令
 
 ```bash
-python3 skills/qc-eval/scripts/sync_source_from_feishu.py
-python3 skills/qc-eval/scripts/probe_38_task_ids.py --task-title "<任务名>"
-node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome
-# 或：node skills/qc-eval/scripts/fetch_38_platform.js auth-login
-node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 --task-title "<任务名>" --sheet-task-id <任务ID>
-python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 38期
+python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id <任务ID>
+node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome
+# 或：node skills/qc-eval/scripts/fetch_g1_platform.js auth-login
+node skills/qc-eval/scripts/fetch_g1_platform.js collect --task-id <任务ID>
+python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period G1-new
 python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
 python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
-python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run
+python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
 # 用户明确要求上传/回写飞书后才可执行：
-python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --write --confirm-user-instructed
+python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-user-instructed
 ```
-

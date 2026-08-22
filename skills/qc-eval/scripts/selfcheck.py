@@ -26,6 +26,8 @@ _TEXT_HEADER_KEYS = [
     "不可验证原因",
     "0614C对比GLM 5.2 模型差异（轨迹/产物）pattern简述",
     "红线问题",
+    "题目红线问题",
+    "题目红线备注",
     "质检人",
     "所属商",
     "所述商",
@@ -39,6 +41,7 @@ _NORMAL_TASK_HEADER = "是否正常题目"
 _CATEGORY_CORRECT_HEADER = "分类是否正确"
 _TASK_RATING_HEADER = "任务质量（题目质量）"
 _REDLINE_HEADER = "红线问题"
+_G1_REDLINE_HEADER = "题目红线问题"
 _MACHINE_QC_HEADER = "机器质检结果是否正确"
 _MACHINE_QC_REASON_HEADER = "错误原因"
 _PLATFORM_AUDIT_HEADER = "一次质检平台审核理由（按模型）"
@@ -75,6 +78,8 @@ def find_headers(ws) -> dict[str, int]:
 
 
 def detect_period(headers: dict[str, int]) -> str:
+    if any(h.startswith("【G1】") for h in headers) or "题目红线问题" in headers:
+        return "G1-new"
     return "38期"
 
 
@@ -109,7 +114,7 @@ FORBIDDEN_WORDS = [
     "——", "—",
     "【", "】", "「", "」", "『", "』",
     # 把模型称作"这家"/"四家"是口语错觉（像在评供应商）。规范统一写作
-    # "这个模型"/"该模型"/"4 个模型"。
+    # "这个模型"/"该模型"/"5 个模型"。
     "这家", "那家", "几家", "两家", "三家", "四家", "五家",
     # "封顶"是方舟平台打分时的内部勾选项名，对题面下游 reviewer 不通用，
     # 备注里要翻译成"认为核心功能不可用 / 严重问题"这种白话。
@@ -153,7 +158,7 @@ MAX_CODE_REFS = 3
 # 经济价值、评测价值、可复核性和未达高质量原因；不要写页面没有展示的
 # 4 模型总分，也不要把“是否是高质量题目”这个表字段的填写动作写进去。
 TASK_NOTE_FORBIDDEN_PATTERNS = [
-    (re.compile(r"4\s*个模型总分"), "task-note-no-4-model-total-score"),
+    (re.compile(r"[45]\s*个模型总分"), "task-note-no-model-total-score"),
     (re.compile(r"模型总分为"), "task-note-no-model-total-score"),
     (re.compile(r"是否是高质量题目.{0,20}填"), "task-note-no-high-quality-field-self-description"),
     (re.compile(r"填[“\"]?[是否][”\"]?"), "task-note-no-field-fill-instruction"),
@@ -271,9 +276,13 @@ def evidence_too_thin(texts: list[str]) -> bool:
     return sum(len(t.strip()) for t in concrete) < MIN_REDLINE_EVIDENCE_LEN
 
 
+def redline_header_col(headers: dict[str, int]) -> int | None:
+    return headers.get(_G1_REDLINE_HEADER) or headers.get(_REDLINE_HEADER)
+
+
 def redline_consistency_issues(ws, headers: dict[str, int]) -> list[str]:
     """Check 红线问题 options, category match, and minimum evidence discipline."""
-    redline_col = headers.get(_REDLINE_HEADER)
+    redline_col = redline_header_col(headers)
     if not redline_col:
         return []
 
@@ -430,7 +439,7 @@ def check_xlsx(xlsx_path: Path) -> tuple[dict[int, list[str]], str]:
     platform_audit_text = cell_text(ws, platform_audit_col)
     if platform_audit_col and "任务质量高" in platform_audit_text:
         bad.setdefault(platform_audit_col, []).append("platform-audit-no-任务质量高")
-    redline_col = headers.get(_REDLINE_HEADER)
+    redline_col = redline_header_col(headers)
     redline_issues = redline_consistency_issues(ws, headers)
     if redline_col and redline_issues:
         bad.setdefault(redline_col, []).extend(redline_issues)

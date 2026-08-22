@@ -14,9 +14,9 @@ from tasks/<TASK_ID>/qc_cells.json after the rebuild.
 
 Usage:
     push_xlsx.py <TASK_ID> [<TASK_ID> ...]
-        [--source <repo>/data/众测质检38.xlsx]
-        [--sheet 38期coding质检]
-        [--period 38期]
+        [--source <repo>/docs/G1-new.xlsx]
+        [--sheet Sheet1]
+        [--period G1-new]
 """
 
 from __future__ import annotations
@@ -34,15 +34,18 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from lib.paths import REPO_ROOT, default_source_xlsx  # noqa: E402
+from lib.paths import REPO_ROOT, default_g1_source_xlsx, default_38_source_xlsx  # noqa: E402
 
-DEFAULT_SOURCE = default_source_xlsx()
-DEFAULT_SHEET = "38期coding质检"
-SOURCE_38 = DEFAULT_SOURCE
-SHEET_38 = DEFAULT_SHEET
+DEFAULT_SOURCE = default_g1_source_xlsx()
+DEFAULT_SHEET = "Sheet1"
+SOURCE_38 = default_38_source_xlsx()
+SHEET_38 = "38期coding质检"
+SOURCE_G1 = DEFAULT_SOURCE
+SHEET_G1 = DEFAULT_SHEET
 MACHINE_QC_HEADER = "机器质检结果是否正确"
 MACHINE_QC_OPTIONS = ("正确", "部分正确可参考", "错误")
 PERIOD_PRESETS = {
+    "G1-new": (SOURCE_G1, SHEET_G1),
     "38期": (SOURCE_38, SHEET_38),
 }
 
@@ -56,10 +59,13 @@ HEADER_MAP_SHEET = {
     "分类是否正确": ("category_correct", "is_category_correct", "分类是否正确"),
     "0614C对比GLM 5.2 模型差异（轨迹/产物）pattern简述": "diff_pattern",
     "红线问题": ("redline_issue", "redline_problem", "red_flag_issue"),
+    "题目红线问题": ("redline_issue", "redline_problem", "red_flag_issue"),
+    "题目红线备注": ("redline_note", "redline_remark", "题目红线备注"),
     "质检人": "reviewer",
     "所属商": "supplier",
     "所述商": "supplier",
     "一次质检平台审核理由（按模型）": ("platform_audit_reasons", "audit_reasons", "一次质检平台审核理由（按模型）"),
+    "一次质检是否完成": ("qc_done", "once_qc_done", "一次质检是否完成"),
     "0614C完成质量实际打分": "score_0614C",
     "GLM5.2完成质量打分": "score_GLM5_2",
     "机器质检结果是否正确": ("machine_qc_correct", "machine_result_correct", "machine_correct"),
@@ -67,18 +73,32 @@ HEADER_MAP_SHEET = {
 }
 # 期数相关字段：期数换了这些列直接不存在于表头，push 时静默跳过。
 _PERIOD_OPTIONAL_KEYS = {"diff_pattern", "score_0614C", "score_GLM5_2"}
+_PERIOD_OPTIONAL_HEADERS = {
+    "红线问题",
+    "题目红线问题",
+    "题目红线备注",
+    "一次质检是否完成",
+    "是否正常题目",
+    "机器质检结果是否正确",
+    "错误原因",
+    "0614C对比GLM 5.2 模型差异（轨迹/产物）pattern简述",
+    "0614C完成质量实际打分",
+    "GLM5.2完成质量打分",
+}
 
 PER_MODEL_SUFFIXES = {
     "反馈质量（作业质量）": "rating",
     # "验证截图": "screenshot",  # 截图列保留空白，截图文件在 delivery/<ID>/screenshots/ 自查
     "质量备注": "note",
+    "脏数据标签": "dirty_tag",
+    "脏数据标签理由": "dirty_tag_reason",
 }
 
 # 29 期表头示例：
 #   '30B-0616E-OPD反馈质量（作业质量）', '30B-Merge-0618B-AA反馈质量（作业质量）', ...
 # 28 期表头示例：
 #   '0614C反馈质量（作业质量）', 'GLM 5.2反馈质量（作业质量）', ...
-# 一律从表头动态抽 4 个模型名，不再硬编码。
+# 一律从表头动态抽模型名，不再硬编码 4 个或 5 个。
 _MODEL_SUFFIX_KEY = "反馈质量（作业质量）"
 READ_ONLY_HEADERS = {"是否结算"}
 HIGH_QUALITY_TASK_HEADER = "是否是高质量题目"
@@ -226,13 +246,15 @@ def has_sheet_key(sheet: dict, key_or_aliases) -> bool:
 
 
 def compose_platform_audit_reasons(sheet: dict, model_names: list[str]) -> str:
+    from lib.g1 import sheet_model_label  # noqa: E402
+
     models = sheet.get("models", {})
     lines = []
     for model in model_names:
         data = models.get(model, {})
         reason = str(data.get("platform_audit_reason") or data.get("audit_reason") or "").strip()
         if reason:
-            lines.append(f"{model}：{reason}")
+            lines.append(f"{sheet_model_label(model)}：{reason}")
     return "\n".join(lines)
 
 
@@ -339,8 +361,9 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
             if key_or_aliases == "supplier":
                 continue
             # 29 期表头没有 diff_pattern / score_*，不算错，静默跳过。
-            if key_or_aliases not in _PERIOD_OPTIONAL_KEYS and header != "红线问题":
-                print(f"     [warn] header missing: {header!r}")
+            if key_or_aliases in _PERIOD_OPTIONAL_KEYS or header in _PERIOD_OPTIONAL_HEADERS:
+                continue
+            print(f"     [warn] header missing: {header!r}")
             continue
         if has_sheet_key(sheet, key_or_aliases):
             write_value(ws, row, col, read_sheet_value(sheet, key_or_aliases))
@@ -350,7 +373,8 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
     normal_task_col = headers.get(NORMAL_TASK_HEADER)
     if normal_task_col:
         write_value(ws, row, normal_task_col, derive_normal_task(sheet))
-    if headers.get("红线问题") and not has_sheet_key(sheet, HEADER_MAP_SHEET["红线问题"]):
+    redline_header = "题目红线问题" if headers.get("题目红线问题") else "红线问题"
+    if headers.get(redline_header) and not has_sheet_key(sheet, HEADER_MAP_SHEET.get(redline_header, "redline_issue")):
         ratings = [sheet.get("prompt_quality"), *(m.get("rating") for m in sheet.get("models", {}).values())]
         if any("红线" in str(v or "") for v in ratings):
             print("     [warn] 存在不可用（红线）评级，但 qc_cells.sheet 未填写 redline_issue")
@@ -370,10 +394,12 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
             ws.cell(row, col).value = None
             if not mdata:
                 continue
-            if mkey in mdata:
-                value = mdata[mkey]
+            if mkey in mdata or mkey == "dirty_tag":
+                value = mdata.get(mkey)
                 if mkey == "note":
                     value = compose_feedback_note(mdata)
+                if mkey == "dirty_tag" and (value is None or not str(value).strip()):
+                    value = "非脏数据"
                 write_value(ws, row, col, value)
         if not mdata:
             print(f"     [warn] qc_cells.sheet.models 里没有 {model!r}")
@@ -388,17 +414,17 @@ def push_one(task_id: str, source: Path, sheet_name: str, tasks_dir: Path) -> bo
 
     src_wb = openpyxl.load_workbook(source, data_only=False)
     if sheet_name not in src_wb.sheetnames:
-        if sheet_name == SHEET_38:
+        if len(src_wb.sheetnames) == 1:
+            sheet_name = src_wb.sheetnames[0]
+        elif sheet_name == SHEET_38:
             candidates = [s for s in src_wb.sheetnames if s.startswith("38期")]
-            if not candidates and len(src_wb.sheetnames) == 1:
-                candidates = [src_wb.sheetnames[0]]
             if candidates:
                 sheet_name = candidates[0]
             else:
                 print(f"  ERROR: sheet {sheet_name!r} not in source", file=sys.stderr)
                 return False
         else:
-            print(f"  ERROR: sheet {sheet_name!r} not in source", file=sys.stderr)
+            print(f"  ERROR: sheet {sheet_name!r} not in source {src_wb.sheetnames}", file=sys.stderr)
             return False
     src_ws = src_wb[sheet_name]
     header_row = locate_header_row(src_ws)
@@ -437,7 +463,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("task_ids", nargs="+")
     p.add_argument("--period", choices=sorted(PERIOD_PRESETS),
-                   help="使用内置期数配置；38期使用源表「任务ID」作为本地目录名")
+                   help="使用内置期数配置；G1-new 使用源表「任务ID」作为本地目录名")
     p.add_argument("--source", default=None)
     p.add_argument("--sheet", default=None)
     p.add_argument("--tasks-dir", default=str(REPO_ROOT / "tasks"))
@@ -450,8 +476,8 @@ def main() -> int:
 
     source = Path(args.source) if args.source else preset_source
     sheet = args.sheet or preset_sheet
-    if sheet not in {DEFAULT_SHEET, SHEET_38}:
-        print(f"ERROR: 本工程只允许生成 38期交付物，拒绝 sheet={sheet!r}", file=sys.stderr)
+    if sheet not in {DEFAULT_SHEET, SHEET_G1, SHEET_38}:
+        print(f"ERROR: 不支持的交付 sheet={sheet!r}", file=sys.stderr)
         return 2
     if not source.exists():
         print(f"ERROR: source xlsx not found: {source}", file=sys.stderr)

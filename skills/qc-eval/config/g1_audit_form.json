@@ -1,0 +1,183 @@
+{
+  "period": "G1-new",
+  "project_id": 277,
+  "source": {
+    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277/review/12232?mode=audit",
+    "task_id": 4267,
+    "task_title": "肉鸽自走棋",
+    "task_model_run_id": 12232,
+    "platform": "harrier",
+    "sheet_model": "【G1】S347",
+    "captured_at": "2026-08-22T09:02:32.767Z",
+    "api": {
+      "action": "CaseBffV1CrowdtestTaskModelAuditGet",
+      "body": { "taskModelRunId": 12232 }
+    },
+    "local_snapshot": [
+      "tasks/<TASK_ID>/ark_g1/audit_form_<runId>.json",
+      "tasks/<TASK_ID>/ark_g1/audit_get_<runId>.json",
+      "tasks/<TASK_ID>/ark_g1/_audit_form_<runId>.png"
+    ]
+  },
+  "page": {
+    "left_tabs": ["Session 轨迹", "Workspace"],
+    "right_tabs": ["评测打分", "质检"],
+    "actions": ["返回列表", "保存草稿", "打回", "提交审核"]
+  },
+  "annotator_panel": {
+    "title": "评测打分",
+    "note": "只读。这是标注人已提交的打分，不是质检要填的表单。",
+    "dimensions": [
+      {
+        "id": 15,
+        "name": "执行过程",
+        "score_range": [1, 10],
+        "attribution_tags": [
+          "自测不充分",
+          "能绕过环境缺陷",
+          "英文回复",
+          "效率太低",
+          "过度谄媚",
+          "模型运行不稳定",
+          "没读到 Skills",
+          "模型需要反复指引",
+          "不当行为",
+          "模型偷懒或频繁中断"
+        ],
+        "remark_label": "维度备注"
+      },
+      {
+        "id": 14,
+        "name": "执行产物",
+        "score_range": [1, 10],
+        "attribution_tags": [
+          "用猜测补空白",
+          "忽略关键约束",
+          "任务跑偏",
+          "过早宣称完成",
+          "产物里有幻觉输出",
+          "产物性能差",
+          "把正常的老功能改坏",
+          "新功能有 Bug、或者历史 Bug 没改好",
+          "产物无法启动",
+          "模糊意图理解好",
+          "最终轮信息有误",
+          "违背要求",
+          "模型遗漏或遗忘"
+        ],
+        "remark_label": "维度备注"
+      }
+    ],
+    "artifact_feedback_label": "产出物反馈"
+  },
+  "qc_form": {
+    "title": "质检",
+    "fill_file": "delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json",
+    "fill_markdown": "delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md",
+    "fields": [
+      {
+        "key": "task_quality",
+        "label": "请选择该任务的质量",
+        "required": true,
+        "type": "radio",
+        "options": ["高", "中", "低", "不可用"],
+        "qc_cells": "sheet.prompt_quality",
+        "map_from_sheet": {
+          "高质量": "高",
+          "合格": "中",
+          "中质量": "中",
+          "低质量": "低",
+          "不合格": "不可用",
+          "不可用": "不可用",
+          "红线": "不可用"
+        },
+        "shared_across_models": true
+      },
+      {
+        "key": "task_quality_note",
+        "label": "任务质量备注",
+        "required": false,
+        "type": "textarea",
+        "placeholder": "请输入备注",
+        "qc_cells": "sheet.prompt_quality_note",
+        "shared_across_models": true
+      },
+      {
+        "key": "feedback_quality",
+        "label": "请选择该用户的反馈质量",
+        "required": true,
+        "type": "radio",
+        "options": ["完全可用", "部分可用", "完全不可用"],
+        "qc_cells": "sheet.models.<模型>.rating",
+        "map_from_sheet": {
+          "高质量": "完全可用",
+          "合格": "部分可用",
+          "部分可用": "部分可用",
+          "不合格": "完全不可用",
+          "完全不可用": "完全不可用",
+          "红线": "完全不可用"
+        }
+      },
+      {
+        "key": "feedback_quality_note",
+        "label": "反馈质量备注",
+        "required": false,
+        "type": "textarea",
+        "placeholder": "请输入备注",
+        "qc_cells": "sheet.models.<模型>.note"
+      },
+      {
+        "key": "audit_reason",
+        "label": "审核理由",
+        "required": true,
+        "type": "textarea",
+        "placeholder": "例如：响应内容偏离任务要求 / 输出代码可直接运行 / 触及红线敏感词...",
+        "qc_cells": "sheet.models.<模型>.platform_audit_reason | audit_reason"
+      },
+      {
+        "key": "dirty_tags",
+        "label": "请选择脏数据标签",
+        "required": false,
+        "type": "multi_select",
+        "note": "页面没有「非脏数据」按钮。不选任何标签即表示非脏数据。",
+        "options": [
+          "模型资源问题：API 请求超时 / 轨迹大量 error",
+          "OpenClaw/Hermes框架问题",
+          "用户问题：低质量任务",
+          "用户问题：敷衍恶意打分",
+          "用户问题：AI 打分 / AI 评价",
+          "用户问题：用户切换模型错误",
+          "用户问题：LLM任务测试VLM能力",
+          "其他"
+        ],
+        "qc_cells": "sheet.models.<模型>.dirty_tag",
+        "empty_means": "不选",
+        "aliases": {
+          "非脏数据": [],
+          "API 请求超时 / 轨迹大量 error": ["模型资源问题：API 请求超时 / 轨迹大量 error"],
+          "API请求超时/轨迹大量error": ["模型资源问题：API 请求超时 / 轨迹大量 error"],
+          "模型资源问题：API 请求超时 / 轨迹大量 error": ["模型资源问题：API 请求超时 / 轨迹大量 error"],
+          "OpenClaw / Hermes 框架问题": ["OpenClaw/Hermes框架问题"],
+          "OpenClaw/Hermes框架问题": ["OpenClaw/Hermes框架问题"],
+          "低质量任务": ["用户问题：低质量任务"],
+          "用户问题：低质量任务": ["用户问题：低质量任务"],
+          "敷衍恶意打分": ["用户问题：敷衍恶意打分"],
+          "完全敷衍": ["用户问题：敷衍恶意打分"],
+          "虚假反馈": ["用户问题：敷衍恶意打分"],
+          "trace和反馈结果明显不一致": ["用户问题：敷衍恶意打分"],
+          "用户问题：敷衍恶意打分": ["用户问题：敷衍恶意打分"],
+          "AI 打分 / AI 评价": ["用户问题：AI 打分 / AI 评价"],
+          "AI打分/AI评价": ["用户问题：AI 打分 / AI 评价"],
+          "用户问题：AI 打分 / AI 评价": ["用户问题：AI 打分 / AI 评价"],
+          "用户切换模型错误": ["用户问题：用户切换模型错误"],
+          "用户问题：用户切换模型错误": ["用户问题：用户切换模型错误"],
+          "题目红线（prompt 简单 / VLM 错配）": ["用户问题：LLM任务测试VLM能力"],
+          "LLM任务测试VLM能力": ["用户问题：LLM任务测试VLM能力"],
+          "用户问题：LLM任务测试VLM能力": ["用户问题：LLM任务测试VLM能力"],
+          "其他": ["其他"],
+          "其它": ["其他"]
+        }
+      }
+    ]
+  }
+}
