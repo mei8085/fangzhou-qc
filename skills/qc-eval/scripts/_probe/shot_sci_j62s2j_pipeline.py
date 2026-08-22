@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
-REPO = Path("D:/fz/fangzhou/fangzhou")
+REPO = Path(__file__).resolve().parents[4]
 TASK = "J62S2J"
 OUT = REPO / "delivery" / TASK / "screenshots"
 OUT.mkdir(parents=True, exist_ok=True)

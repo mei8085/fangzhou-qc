@@ -130,11 +130,7 @@ print(f"OK {key} bytes={len(html)}")
 }
 
 
-PY_EXE_CANDIDATES = [
-    r"C:\Users\fangzheng\AppData\Local\Programs\Python\Python312\python.exe",
-    sys.executable,
-]
-PY_EXE = next((p for p in PY_EXE_CANDIDATES if Path(p).exists()), sys.executable)
+PY_EXE = sys.executable
 
 
 def render_html_for(model_code: str, model_dir: Path, chart_key: str, out_html: Path) -> tuple[bool, str]:

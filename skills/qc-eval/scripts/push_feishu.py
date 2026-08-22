@@ -203,14 +203,15 @@ def lark_exe() -> list[str]:
 
     On Windows the user-facing `lark-cli` in PATH is a bash wrapper that
     Python's subprocess can't launch directly, so we resolve the underlying
-    `.exe` once and cache it."""
+    `.exe` once and cache it. On macOS/Linux we prefer `shutil.which("lark-cli")`.
+    """
     global _LARK_EXE
     if _LARK_EXE is not None:
         return _LARK_EXE
-    # On Windows prefer the real native binary if available. The .cmd shim and
-    # extensionless wrapper can both bounce through batch/shell layers that make
-    # `--values` handling flaky.
-    candidates = []
+    candidates: list[list[str]] = []
+    which = shutil.which("lark-cli")
+    if which:
+        candidates.append([which])
     if sys.platform == "win32":
         cmd_path = shutil.which("lark-cli.cmd")
         if cmd_path:
@@ -219,9 +220,40 @@ def lark_exe() -> list[str]:
             if exe_path.exists():
                 candidates.append([str(exe_path)])
         candidates.extend([["lark-cli.exe"], ["lark-cli.cmd"], ["cmd", "/c", "lark-cli"]])
+        roots = [
+            Path("C:/nvm4w/nodejs/node_modules/@larksuite"),
+            Path(os.path.expandvars("%APPDATA%/npm/node_modules/@larksuite")),
+        ]
+        for root in roots:
+            if not root.exists():
+                continue
+            for exe in root.glob("*/bin/lark-cli.exe"):
+                candidates.append([str(exe)])
     else:
-        candidates.extend([["lark-cli.exe"], ["lark-cli.cmd"], ["lark-cli"]])
+        candidates.append(["lark-cli"])
+        npm_cmd = shutil.which("npm")
+        if npm_cmd:
+            try:
+                npm_root = subprocess.run(
+                    [npm_cmd, "root", "-g"],
+                    capture_output=True, text=True, check=False,
+                ).stdout.strip()
+            except OSError:
+                npm_root = ""
+            if npm_root:
+                cli_js = Path(npm_root) / "@larksuite" / "cli" / "bin" / "lark-cli.js"
+                if cli_js.exists():
+                    node = shutil.which("node") or "node"
+                    candidates.append([node, str(cli_js)])
+    seen: set[tuple[str, ...]] = set()
+    unique: list[list[str]] = []
     for candidate in candidates:
+        key = tuple(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    for candidate in unique:
         try:
             r = subprocess.run([*candidate, "--version"], capture_output=True, text=True)
             if r.returncode == 0:
@@ -229,17 +261,7 @@ def lark_exe() -> list[str]:
                 return _LARK_EXE
         except (FileNotFoundError, OSError):
             pass
-    # Windows fallback: scan known nvm4w / npm prefixes for lark-cli.exe
-    if sys.platform == "win32":
-        roots = [Path("C:/nvm4w/nodejs/node_modules/@larksuite"),
-                 Path(os.path.expandvars("%APPDATA%/npm/node_modules/@larksuite"))]
-        for root in roots:
-            if not root.exists():
-                continue
-            for exe in root.glob("*/bin/lark-cli.exe"):
-                _LARK_EXE = [str(exe)]
-                return _LARK_EXE
-    raise RuntimeError("lark-cli 可执行文件没找到；确认已安装且在 PATH 上 (Windows 上请确认 .exe 路径)")
+    raise RuntimeError("lark-cli 可执行文件没找到；确认已安装且在 PATH 上")
 
 
 def lark(args: list[str], *, profile: str, dry: bool = False, capture: bool = True, cwd: str | None = None) -> dict | str | None:

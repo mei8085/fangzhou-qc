@@ -24,30 +24,12 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageChops
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from lib.fonts import CJK_FONT_CANDIDATES as _CJK_FONT_CANDIDATES  # noqa: E402
+from lib.fonts import FONT_CANDIDATES as _FONT_CANDIDATES  # noqa: E402
+from lib.fonts import load_font  # noqa: E402
+
 REPO_ROOT = HERE.parent.parent.parent
-
-_FONT_CANDIDATES = [
-    r"C:\Windows\Fonts\consola.ttf",
-    r"C:\Windows\Fonts\cour.ttf",
-    "/Library/Fonts/Menlo.ttc",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-]
-_CJK_FONT_CANDIDATES = [
-    r"C:\Windows\Fonts\msyh.ttc",
-    r"C:\Windows\Fonts\simhei.ttf",
-    "/System/Library/Fonts/STHeiti Medium.ttc",
-    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-]
-
-
-def load_font(candidates, size):
-    for p in candidates:
-        if Path(p).exists():
-            try:
-                return ImageFont.truetype(p, size)
-            except OSError:
-                continue
-    return ImageFont.load_default()
 
 
 def count_lines(p: Path) -> int:

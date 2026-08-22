@@ -26,14 +26,14 @@ from compose_cli import (
     render_panel,
     trim_panel,
 )
+from lib.fonts import CJK_FONT_CANDIDATES
 from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
 
 _CJK_MONO = [
-    r"C:\Windows\Fonts\msyh.ttc",
-    r"C:\Windows\Fonts\simsun.ttc",
+    *CJK_FONT_CANDIDATES,
     *_FONT_CANDIDATES,
 ]
 

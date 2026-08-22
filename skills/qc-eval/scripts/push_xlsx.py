@@ -14,7 +14,7 @@ from tasks/<TASK_ID>/qc_cells.json after the rebuild.
 
 Usage:
     push_xlsx.py <TASK_ID> [<TASK_ID> ...]
-        [--source D:/fz/fangzhou/众测质检38.xlsx]
+        [--source <repo>/data/众测质检38.xlsx]
         [--sheet 38期coding质检]
         [--period 38期]
 """
@@ -33,9 +33,10 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 HERE = Path(__file__).resolve().parent
-REPO_ROOT = HERE.parent.parent.parent
+sys.path.insert(0, str(HERE))
+from lib.paths import REPO_ROOT, default_source_xlsx  # noqa: E402
 
-DEFAULT_SOURCE = Path("D:/fz/fangzhou/众测质检38.xlsx")
+DEFAULT_SOURCE = default_source_xlsx()
 DEFAULT_SHEET = "38期coding质检"
 SOURCE_38 = DEFAULT_SOURCE
 SHEET_38 = DEFAULT_SHEET

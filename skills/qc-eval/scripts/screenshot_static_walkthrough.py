@@ -31,8 +31,10 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from lib.fonts import FONT_CANDIDATES, load_font as _load_font  # noqa: E402
+
 REPO_ROOT = HERE.parent.parent.parent
 TASKS_DIR = REPO_ROOT / "tasks"
 DELIVERY_DIR = REPO_ROOT / "delivery"
@@ -81,18 +83,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    candidates = [
-        r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\msyhbd.ttc",
-        r"C:\Windows\Fonts\simhei.ttf",
-        r"C:\Windows\Fonts\CascadiaMono.ttf",
-        r"C:\Windows\Fonts\consola.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-    ]
-    for p in candidates:
-        if Path(p).exists():
-            return ImageFont.truetype(p, size)
-    return ImageFont.load_default()
+    return _load_font(FONT_CANDIDATES, size)
 
 
 def read_text(path: Path) -> str:

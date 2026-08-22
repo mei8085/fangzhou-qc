@@ -6,12 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from lib.fonts import FONT_CANDIDATES, load_font as _load_font  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = HERE.parent.parent.parent
 
 
 def safe_tag(name: str) -> str:
@@ -19,18 +23,7 @@ def safe_tag(name: str) -> str:
 
 
 def load_font(size: int) -> ImageFont.ImageFont:
-    for name in (
-        "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/simhei.ttf",
-        "C:/Windows/Fonts/simsun.ttc",
-        "C:/Windows/Fonts/consola.ttf",
-        "DejaVuSansMono.ttf",
-    ):
-        try:
-            return ImageFont.truetype(name, size)
-        except Exception:
-            pass
-    return ImageFont.load_default()
+    return _load_font(FONT_CANDIDATES, size)
 
 
 def read_log(path: Path) -> str:

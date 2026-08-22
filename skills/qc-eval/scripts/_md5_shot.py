@@ -1,12 +1,14 @@
 """Render md5 comparison PNG for Opus 4.7 (PDCOF) verify screenshot."""
 
 import hashlib
-import os
 import sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from lib.fonts import CJK_FONT_CANDIDATES, MONO_FONT_CANDIDATES, load_font  # noqa: E402
+
 REPO = HERE.parent.parent.parent
 SRC = REPO / "tasks" / "6GPZWM" / "extracted" / "source"
 DUT = REPO / "tasks" / "6GPZWM" / "extracted" / "PDCOF"
@@ -21,22 +23,9 @@ def size_of(p: Path) -> int:
     return p.stat().st_size
 
 
-def find_font(size: int, mono: bool = False) -> ImageFont.FreeTypeFont:
-    candidates_mono = [
-        r"C:\Windows\Fonts\consola.ttf",
-        r"C:\Windows\Fonts\CascadiaMono.ttf",
-        r"C:\Windows\Fonts\lucon.ttf",
-    ]
-    candidates_sans = [
-        r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\msyhbd.ttc",
-        r"C:\Windows\Fonts\simhei.ttf",
-    ]
-    pool = candidates_mono if mono else candidates_sans
-    for c in pool:
-        if os.path.exists(c):
-            return ImageFont.truetype(c, size)
-    return ImageFont.load_default()
+def find_font(size: int, mono: bool = False):
+    pool = MONO_FONT_CANDIDATES if mono else CJK_FONT_CANDIDATES
+    return load_font(pool, size)
 
 
 def main():

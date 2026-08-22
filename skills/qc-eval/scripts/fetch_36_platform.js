@@ -3,6 +3,7 @@
 //
 // Main use:
 //   node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome
+//   node skills/qc-eval/scripts/fetch_38_platform.js auth-login
 //   node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 --task-id 475 --sheet-task-id <任务ID>
 //
 // Outputs:
@@ -65,12 +66,14 @@ function parseArgs(argv) {
 
 function usage(code = 2) {
   console.error(`usage:
-  node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json] [--profile Default]
+  node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json] [--profile Default] [--chrome-user-data-dir <dir>]
+  node skills/qc-eval/scripts/fetch_38_platform.js auth-login [--state skills/qc-eval/.ark_platform_state.json] [--url <login-url>]
   node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 (--task-id 475 | --task-title <title>) --sheet-task-id <任务ID> [--state <state.json>] [--tasks-dir tasks] [--skip-workspace] [--skip-trajectory] [--keep-existing] [--runs 1702,1701]
   node skills/qc-eval/scripts/fetch_38_platform.js find-project (--task-id 475 | --task-title <title>) [--projects 230-270|256] [--state <state.json>]
 
 notes:
-  auth-from-chrome reads the current Windows Chrome login cookies and writes a Playwright storageState.
+  auth-from-chrome copies volcengine cookies from the local Chrome profile (Windows VSS / macOS Keychain / Linux).
+  If cookie export fails, it falls back to auth-login (headed Playwright window).
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
   collect reads task/model rows, per-run evaluation/audit data, workspace zip, and session trajectory JSON.`);
   process.exit(code);
@@ -538,17 +541,204 @@ async function findProject(opts) {
 }
 
 function run(command, args, options = {}) {
-  const r = spawnSync(command, args, { encoding: 'utf8', stdio: options.stdio || 'pipe' });
+  const r = spawnSync(command, args, {
+    encoding: 'utf8',
+    stdio: options.stdio || 'pipe',
+    env: options.env || process.env,
+  });
   if (r.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed (${r.status})\n${r.stdout || ''}\n${r.stderr || ''}`);
   }
   return r.stdout;
 }
 
-function authFromChrome(opts) {
-  if (process.platform !== 'win32') {
-    throw new Error('auth-from-chrome currently supports Windows Chrome profiles only');
+function pythonCmd() {
+  if (process.env.QC_PYTHON) return process.env.QC_PYTHON;
+  const cmds = process.platform === 'win32' ? ['python', 'python3'] : ['python3', 'python'];
+  for (const cmd of cmds) {
+    const r = spawnSync(cmd, ['-c', 'import sys; print(sys.version_info[0])'], { encoding: 'utf8' });
+    if (r.status === 0 && String(r.stdout || '').trim().startsWith('3')) return cmd;
   }
+  throw new Error('Python 3 not found (tried python3/python). Set QC_PYTHON to the interpreter path.');
+}
+
+function defaultChromeUserDataDir() {
+  const home = os.homedir();
+  if (process.platform === 'darwin') {
+    const candidates = [
+      path.join(home, 'Library', 'Application Support', 'Google', 'Chrome'),
+      path.join(home, 'Library', 'Application Support', 'Chromium'),
+    ];
+    return candidates.find((p) => fs.existsSync(p)) || candidates[0];
+  }
+  if (process.platform === 'linux') {
+    const candidates = [
+      path.join(home, '.config', 'google-chrome'),
+      path.join(home, '.config', 'chromium'),
+    ];
+    return candidates.find((p) => fs.existsSync(p)) || candidates[0];
+  }
+  return path.join(home, 'AppData', 'Local', 'Google', 'Chrome', 'User Data');
+}
+
+function copyChromeCookieFiles(userDataDir, profile, tempDir) {
+  const profileDir = path.join(userDataDir, profile);
+  const cookieDirs = [path.join(profileDir, 'Network'), profileDir];
+  let copied = false;
+  for (const dir of cookieDirs) {
+    const src = path.join(dir, 'Cookies');
+    if (!fs.existsSync(src)) continue;
+    for (const name of ['Cookies', 'Cookies-journal', 'Cookies-wal']) {
+      const from = path.join(dir, name);
+      if (fs.existsSync(from)) fs.copyFileSync(from, path.join(tempDir, name));
+    }
+    copied = true;
+    break;
+  }
+  const localState = path.join(userDataDir, 'Local State');
+  if (!fs.existsSync(localState)) {
+    throw new Error(`Chrome Local State not found: ${localState}`);
+  }
+  fs.copyFileSync(localState, path.join(tempDir, 'Local State'));
+  if (!copied) {
+    throw new Error(`Chrome Cookies DB not found under ${profileDir}`);
+  }
+  return {
+    cookieCopy: path.join(tempDir, 'Cookies'),
+    localStateCopy: path.join(tempDir, 'Local State'),
+  };
+}
+
+function chromeSafeStoragePassword(userDataDir) {
+  const isChromium = /chromium/i.test(userDataDir);
+  if (process.platform === 'darwin') {
+    const service = isChromium ? 'Chromium Safe Storage' : 'Chrome Safe Storage';
+    const account = isChromium ? 'Chromium' : 'Chrome';
+    return run('security', ['find-generic-password', '-w', '-s', service, '-a', account]).trim();
+  }
+  if (process.platform === 'linux') {
+    try {
+      const app = isChromium ? 'chromium' : 'chrome';
+      return run('secret-tool', ['lookup', 'application', app]).trim();
+    } catch {
+      return 'peanuts';
+    }
+  }
+  return '';
+}
+
+const COOKIE_EXPORT_PY = String.raw`
+import base64, hashlib, json, os, sqlite3, sys
+from hashlib import pbkdf2_hmac
+
+cookies_db, local_state, out, platform_name = sys.argv[1:5]
+ls = json.load(open(local_state, encoding='utf-8'))
+
+def chrome_time_to_unix(t):
+    return -1 if not t else max(0, int(t / 1000000 - 11644473600))
+
+def same_site(n):
+    if n == 2:
+        return 'Strict'
+    if n == 0:
+        return 'None'
+    return 'Lax'
+
+def decrypt_windows(host, value, encrypted, key):
+    import win32crypt
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    if value:
+        return value
+    if not encrypted:
+        return ''
+    if encrypted.startswith(b'v10') or encrypted.startswith(b'v11'):
+        plain = AESGCM(key).decrypt(encrypted[3:15], encrypted[15:], None)
+        digest = hashlib.sha256(host.encode()).digest()
+        if plain.startswith(digest):
+            plain = plain[32:]
+        return plain.decode('utf-8', errors='replace')
+    return win32crypt.CryptUnprotectData(encrypted, None, None, None, 0)[1].decode('utf-8', errors='replace')
+
+def decrypt_unix(host, value, encrypted, key):
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    if value:
+        return value
+    if not encrypted:
+        return ''
+    if encrypted.startswith(b'v20'):
+        raise ValueError('v20 app-bound cookie')
+    if not (encrypted.startswith(b'v10') or encrypted.startswith(b'v11')):
+        return ''
+    iv = b' ' * 16
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    decryptor = cipher.decryptor()
+    plain = decryptor.update(encrypted[3:]) + decryptor.finalize()
+    pad = plain[-1]
+    if isinstance(pad, str):
+        pad = ord(pad)
+    if 1 <= pad <= 16:
+        plain = plain[:-pad]
+    digest = hashlib.sha256(host.encode()).digest()
+    if plain.startswith(digest):
+        plain = plain[32:]
+    return plain.decode('utf-8', errors='replace')
+
+if platform_name == 'win32':
+    import win32crypt
+    enc_key = base64.b64decode(ls['os_crypt']['encrypted_key'])
+    if enc_key.startswith(b'DPAPI'):
+        enc_key = enc_key[5:]
+    key = win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
+    decrypt = lambda host, value, encrypted: decrypt_windows(host, value, encrypted, key)
+else:
+    password = os.environ.get('CHROME_SAFE_STORAGE_PASSWORD') or 'peanuts'
+    rounds = 1003 if platform_name == 'darwin' else 1
+    key = pbkdf2_hmac('sha1', password.encode('utf-8'), b'saltysalt', rounds, dklen=16)
+    decrypt = lambda host, value, encrypted: decrypt_unix(host, value, encrypted, key)
+
+con = sqlite3.connect(cookies_db)
+con.row_factory = sqlite3.Row
+rows = con.execute("""
+select host_key,name,value,encrypted_value,path,expires_utc,is_secure,is_httponly,samesite
+from cookies
+where host_key like '%volcengine.com'
+   or host_key like 'ark.volcengine.com'
+   or host_key like 'console.volcengine.com'
+   or host_key like 'signin.volcengine.com'
+""").fetchall()
+cookies = []
+for r in rows:
+    try:
+        val = decrypt(r['host_key'], r['value'], r['encrypted_value'])
+    except Exception:
+        continue
+    if not val:
+        continue
+    cookies.append({
+        'name': r['name'],
+        'value': val,
+        'domain': r['host_key'],
+        'path': r['path'] or '/',
+        'expires': chrome_time_to_unix(r['expires_utc']),
+        'httpOnly': bool(r['is_httponly']),
+        'secure': bool(r['is_secure']),
+        'sameSite': same_site(r['samesite']),
+    })
+os.makedirs(os.path.dirname(out), exist_ok=True)
+json.dump({'cookies': cookies, 'origins': []}, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+print(len(cookies))
+`;
+
+function exportCookiesWithPython(cookieCopy, localStateCopy, statePath, extraEnv = {}) {
+  const pyFile = path.join(path.dirname(cookieCopy), 'export_state.py');
+  fs.writeFileSync(pyFile, COOKIE_EXPORT_PY);
+  const env = { ...process.env, ...extraEnv };
+  const count = run(pythonCmd(), [pyFile, cookieCopy, localStateCopy, statePath, process.platform], { env }).trim();
+  csrfFromState(statePath);
+  return count;
+}
+
+function authFromChromeWindows(opts) {
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
   const profile = opts.profile || 'Default';
   const userDataDir = opts['chrome-user-data-dir'] ||
@@ -576,77 +766,7 @@ Copy-Item -LiteralPath ($base + '\\Local State') -Destination '${localStateCopy.
 Write-Output $id
 `;
     shadowId = run('powershell', ['-NoProfile', '-Command', ps]).trim().split(/\r?\n/).pop();
-    const py = String.raw`
-import base64, hashlib, json, os, sqlite3, sys
-import win32crypt
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-cookies_db, local_state, out = sys.argv[1:4]
-ls = json.load(open(local_state, encoding='utf-8'))
-enc_key = base64.b64decode(ls['os_crypt']['encrypted_key'])
-if enc_key.startswith(b'DPAPI'):
-    enc_key = enc_key[5:]
-key = win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
-
-def chrome_time_to_unix(t):
-    return -1 if not t else max(0, int(t / 1000000 - 11644473600))
-
-def decrypt_value(host, value, encrypted):
-    if value:
-        return value
-    if not encrypted:
-        return ''
-    if encrypted.startswith(b'v10') or encrypted.startswith(b'v11'):
-        plain = AESGCM(key).decrypt(encrypted[3:15], encrypted[15:], None)
-        digest = hashlib.sha256(host.encode()).digest()
-        if plain.startswith(digest):
-            plain = plain[32:]
-        return plain.decode('utf-8', errors='replace')
-    return win32crypt.CryptUnprotectData(encrypted, None, None, None, 0)[1].decode('utf-8', errors='replace')
-
-def same_site(n):
-    if n == 2:
-        return 'Strict'
-    if n == 0:
-        return 'None'
-    return 'Lax'
-
-con = sqlite3.connect(cookies_db)
-con.row_factory = sqlite3.Row
-rows = con.execute("""
-select host_key,name,value,encrypted_value,path,expires_utc,is_secure,is_httponly,samesite
-from cookies
-where host_key like '%volcengine.com'
-   or host_key like 'ark.volcengine.com'
-   or host_key like 'console.volcengine.com'
-   or host_key like 'signin.volcengine.com'
-""").fetchall()
-cookies = []
-for r in rows:
-    try:
-        val = decrypt_value(r['host_key'], r['value'], r['encrypted_value'])
-    except Exception:
-        continue
-    if not val:
-        continue
-    cookies.append({
-        'name': r['name'],
-        'value': val,
-        'domain': r['host_key'],
-        'path': r['path'] or '/',
-        'expires': chrome_time_to_unix(r['expires_utc']),
-        'httpOnly': bool(r['is_httponly']),
-        'secure': bool(r['is_secure']),
-        'sameSite': same_site(r['samesite']),
-    })
-os.makedirs(os.path.dirname(out), exist_ok=True)
-json.dump({'cookies': cookies, 'origins': []}, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
-print(len(cookies))
-`;
-    const pyFile = path.join(tempDir, 'export_state.py');
-    fs.writeFileSync(pyFile, py);
-    const count = run('python', [pyFile, cookieCopy, localStateCopy, statePath]).trim();
-    csrfFromState(statePath);
+    const count = exportCookiesWithPython(cookieCopy, localStateCopy, statePath);
     console.log(`==> wrote ${rel(statePath)} (${count} cookies)`);
   } finally {
     if (shadowId) {
@@ -656,9 +776,77 @@ print(len(cookies))
   }
 }
 
+function authFromChromeUnix(opts) {
+  const statePath = path.resolve(opts.state || DEFAULT_STATE);
+  const profile = opts.profile || 'Default';
+  const userDataDir = path.resolve(opts['chrome-user-data-dir'] || defaultChromeUserDataDir());
+  if (!fs.existsSync(userDataDir)) {
+    throw new Error(`Chrome user data dir not found: ${userDataDir}`);
+  }
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ark38-chrome-'));
+  try {
+    const { cookieCopy, localStateCopy } = copyChromeCookieFiles(userDataDir, profile, tempDir);
+    const password = chromeSafeStoragePassword(userDataDir);
+    const count = exportCookiesWithPython(cookieCopy, localStateCopy, statePath, {
+      CHROME_SAFE_STORAGE_PASSWORD: password,
+    });
+    console.log(`==> wrote ${rel(statePath)} (${count} cookies)`);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function authLogin(opts) {
+  const statePath = path.resolve(opts.state || DEFAULT_STATE);
+  const loginUrl = opts.url
+    || 'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/256?tab=review';
+  const timeoutMs = Number(opts.timeout || 300000);
+  ensureDir(path.dirname(statePath));
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: false, channel: 'chrome' });
+  } catch {
+    browser = await chromium.launch({ headless: false });
+  }
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  console.log('==> waiting for volcengine login in the opened browser window');
+  console.log('    sign in, then leave the window open until csrfToken is captured');
+  const started = Date.now();
+  try {
+    while (Date.now() - started < timeoutMs) {
+      const cookies = await ctx.cookies();
+      const csrf = cookies.find((c) => c.name === 'csrfToken' && String(c.domain || '').includes('volcengine.com'));
+      if (csrf && csrf.value) {
+        await ctx.storageState({ path: statePath });
+        csrfFromState(statePath);
+        console.log(`==> wrote ${rel(statePath)} (${cookies.length} cookies)`);
+        return;
+      }
+      await sleep(1500);
+    }
+    throw new Error(`timed out waiting for csrfToken after ${timeoutMs}ms; re-run auth-login after signing in`);
+  } finally {
+    await browser.close();
+  }
+}
+
+async function authFromChrome(opts) {
+  try {
+    if (process.platform === 'win32') authFromChromeWindows(opts);
+    else authFromChromeUnix(opts);
+  } catch (err) {
+    console.error(`==> Chrome cookie export failed: ${err.message}`);
+    console.error('==> falling back to interactive Playwright login (auth-login)');
+    await authLogin(opts);
+  }
+}
+
 async function main() {
   const opts = parseArgs(process.argv);
   if (opts.cmd === 'auth-from-chrome') return authFromChrome(opts);
+  if (opts.cmd === 'auth-login') return authLogin(opts);
   if (opts.cmd === 'find-project') return findProject(opts);
   if (opts.cmd === 'collect') return collect(opts);
   usage();

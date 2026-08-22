@@ -1,11 +1,11 @@
 ﻿---
 name: qc-eval
-description: 38 期方舟 coding 众测质检工作流。默认从飞书 sheet=uBlwx4 同步到 D:/fz/fangzhou/众测质检38.xlsx，按 38 期规则评出题质量与反馈质量，使用 fetch_38_platform.js 采集 Ark 平台 4 个模型运行、Workspace、Session 轨迹、评测打分与审核信息，输出 delivery/<TASK_ID>/，并通过 push_38_feishu.py 或 push_feishu.py 显式回写 38 期飞书表。
+description: 38 期方舟 coding 众测质检工作流。默认从飞书 sheet=uBlwx4 同步到仓库 data/众测质检38.xlsx（Windows 若仍存在 D:/fz/fangzhou/众测质检38.xlsx 则继续用它），按 38 期规则评出题质量与反馈质量，使用 fetch_38_platform.js 采集 Ark 平台 4 个模型运行、Workspace、Session 轨迹、评测打分与审核信息，输出 delivery/<TASK_ID>/，并通过 push_38_feishu.py 或 push_feishu.py 显式回写 38 期飞书表。适用于 Cursor、Claude Code、Codex，以及 Windows / macOS / Linux。
 ---
 
 # 方舟 coding 众测质检 - 38 期工作流技能
 
-唯一权威说明文件。`CLAUDE.md`、`AGENTS.md`、`.cursor/rules/qc-eval.mdc` 只做入口指引，不复制流程。
+唯一权威说明文件。`CLAUDE.md`、`AGENTS.md`、`.cursor/rules/qc-eval.mdc`、`.cursor/skills/qc-eval/SKILL.md` 只做入口指引，不复制流程。
 
 配套规范：
 
@@ -18,13 +18,23 @@ description: 38 期方舟 coding 众测质检工作流。默认从飞书 sheet=u
 - 飞书源表：`https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=uBlwx4`
 - sheet_id：`uBlwx4`
 - 默认表名：`38期coding质检`
-- 本地源表：`D:/fz/fangzhou/众测质检38.xlsx`
+- 本地源表：仓库内 `data/众测质检38.xlsx`（`data/` 已 gitignore）。若本机仍存在 Windows 旧路径 `D:/fz/fangzhou/众测质检38.xlsx`，脚本会优先使用它。可用环境变量 `QC_SOURCE_XLSX` 或 `--out` / `--source` 覆盖。
 - 本地任务目录名：必须使用源表 `任务ID`，例如 `任务ID` 列里的真实 ID；不再使用行号编号
 - Ark 平台项目：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/256?tab=review`
 - Ark 平台采集脚本：`node skills/qc-eval/scripts/fetch_38_platform.js`
-- 飞书同步脚本：`python skills/qc-eval/scripts/sync_source_from_feishu.py` 或 `python skills/qc-eval/scripts/sync_38_source_from_feishu.py`
-- 交付 xlsx：`python skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 38期`
-- 飞书回写：默认只允许执行 `python skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run` 预检；只有用户明确指令“上传/回写/写入飞书”后，才允许执行带 `--write` 的命令。
+- 飞书同步脚本：`python3 skills/qc-eval/scripts/sync_source_from_feishu.py` 或 `python3 skills/qc-eval/scripts/sync_38_source_from_feishu.py`
+- 交付 xlsx：`python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 38期`
+- 飞书回写：默认只允许执行 `python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run` 预检；只有用户明确指令“上传/回写/写入飞书”后，才允许执行带 `--write` 的命令。
+
+## 运行环境
+
+同时支持 Cursor、Claude Code、Codex；操作系统为 Windows（含 Git Bash）、macOS、Linux。
+
+- Python 3：下列命令写 `python3`。Windows 若只有 `python`，把命令中的 `python3` 换成 `python`。也可用 `QC_PYTHON` 指定解释器。
+- 源表路径不要写死盘符。默认见上文「本地源表」；Cursor / macOS 不要再假定 `D:/fz/fangzhou/` 存在。
+- Ark 登录态：`auth-from-chrome` 会从本机 Chrome 导出 volcengine cookie（Windows 用 VSS，macOS 用 Keychain，Linux 用 libsecret）。导出失败时自动打开有头浏览器，改为 `auth-login`。也可直接跑 `node skills/qc-eval/scripts/fetch_38_platform.js auth-login`。
+- Cursor 跑 Playwright / 有头登录 / 平台采集时需要本机网络，并批准相应权限；有头登录会弹出 Chrome/Chromium 窗口，需人工完成登录。
+- `lark-cli` 必须在 PATH 中（macOS/Linux 为 `lark-cli`，Windows 可为 `lark-cli.exe`）。
 
 ## 新规则口径
 
@@ -90,19 +100,21 @@ description: 38 期方舟 coding 众测质检工作流。默认从飞书 sheet=u
 1. 同步 38 期源表。
 
 ```bash
-python skills/qc-eval/scripts/sync_source_from_feishu.py
+python3 skills/qc-eval/scripts/sync_source_from_feishu.py
 ```
 
 2. 确认源表 `任务ID` 列有值，并使用该 `任务ID` 作为 `tasks/` 和 `delivery/` 的子目录名；禁止使用行号作为本地工作编号。
 
 ```bash
-python skills/qc-eval/scripts/probe_38_task_ids.py --task-title "<任务名>"
+python3 skills/qc-eval/scripts/probe_38_task_ids.py --task-title "<任务名>"
 ```
 
 3. 首次使用 Ark 平台前导出登录态。
 
 ```bash
 node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome
+# cookie 导出失败时（常见于 macOS Chrome v20 / Cursor）改为人工登录：
+node skills/qc-eval/scripts/fetch_38_platform.js auth-login
 ```
 
 4. 采集 Ark 平台材料。必须传 `--sheet-task-id <任务ID>`，让平台材料落到源表 `任务ID` 对应的本地目录。
@@ -160,9 +172,9 @@ node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 --task-id
 6. 生成本地交付物，并生成每个模型对应的平台质检填写文件。
 
 ```bash
-python skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 38期
-python skills/qc-eval/scripts/selfcheck.py <任务ID>
-python skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
+python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 38期
+python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
+python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
 ```
 
 逐模型平台填写文件输出为 `delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md`，用于 Ark 质检页面逐模型复制填写；包含任务质量、任务质量备注、标注人反馈质量、反馈质量备注、审核理由和脏数据标签。反馈质量备注保留完整复核证据；审核理由按平台输入框示例写简洁事实结论，必须包含从反馈质量备注中抽出的具体问题点，并覆盖响应是否符合任务要求、输出代码或产物是否可复核、标注人反馈与复核结果是否一致、是否触发红线或脏数据标签，不复制完整备注。需要特殊说明时，可在模型数据下写 `platform_audit_reason` 或 `audit_reason` 覆盖默认审核理由。脏数据标签按 `spec/Coding场景脏数据标签与标准.md` 判断；可在每个模型数据下写 `dirty_tag`，或在 `qc_cells.json` 的 `platform_qc.dirty_tag` 下按模型名填写。未写时，脚本默认输出“非脏数据”。
@@ -170,8 +182,8 @@ python skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
 7. 回写飞书必须听用户指令：常规质检流程到 dry-run 为止，不得主动上传或回写飞书。只有用户明确要求“上传/回写/写入飞书”后，才执行 write；执行顺序仍必须先 dry-run，再 write。
 
 ```bash
-python skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run
-python skills/qc-eval/scripts/push_38_feishu.py <任务ID> --write --confirm-user-instructed
+python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run
+python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --write --confirm-user-instructed
 ```
 
 `push_38_feishu.py` 会重新读取远端 `uBlwx4` 对应行的“任务”单元格，并与本地交付 xlsx 的任务名完全一致才允许写入。
@@ -201,15 +213,16 @@ python skills/qc-eval/scripts/push_38_feishu.py <任务ID> --write --confirm-use
 ## 常用命令
 
 ```bash
-python skills/qc-eval/scripts/sync_source_from_feishu.py
-python skills/qc-eval/scripts/probe_38_task_ids.py --task-title "<任务名>"
+python3 skills/qc-eval/scripts/sync_source_from_feishu.py
+python3 skills/qc-eval/scripts/probe_38_task_ids.py --task-title "<任务名>"
 node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome
+# 或：node skills/qc-eval/scripts/fetch_38_platform.js auth-login
 node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 --task-title "<任务名>" --sheet-task-id <任务ID>
-python skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 38期
-python skills/qc-eval/scripts/selfcheck.py <任务ID>
-python skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
-python skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run
+python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 38期
+python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
+python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
+python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run
 # 用户明确要求上传/回写飞书后才可执行：
-python skills/qc-eval/scripts/push_38_feishu.py <任务ID> --write --confirm-user-instructed
+python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --write --confirm-user-instructed
 ```
 

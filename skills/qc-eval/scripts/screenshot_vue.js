@@ -152,6 +152,8 @@ async function startDevServer(entryDir, port) {
     cwd: entryDir,
     shell: true,
     windowsHide: true,
+    detached: process.platform !== 'win32',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.on('error', e => console.error('     spawn error:', e.message));
   let url;

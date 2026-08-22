@@ -15,7 +15,7 @@ async function main() {
     console.error('usage: probe_qc_tab.js <task_id> <view_user> <model_code>');
     process.exit(2);
   }
-  const outDir = 'D:/fz/fangzhou/fangzhou/tasks/_probe_platform';
+  const outDir = path.join(path.resolve(__dirname, '..', '..', '..', '..'), 'tasks', '_probe_platform');
   fs.mkdirSync(outDir, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });

@@ -10,8 +10,8 @@ Default target:
   https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=uBlwx4
 
 Usage:
-  python skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run
-  python skills/qc-eval/scripts/push_38_feishu.py <任务ID> --write --confirm-user-instructed
+  python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --dry-run
+  python3 skills/qc-eval/scripts/push_38_feishu.py <任务ID> --write --confirm-user-instructed
 """
 
 from __future__ import annotations

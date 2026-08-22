@@ -8,7 +8,9 @@ Default input:
   https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=uBlwx4
 
 Default output:
-  D:/fz/fangzhou/众测质检38.xlsx
+  <repo>/data/众测质检38.xlsx
+  (or D:/fz/fangzhou/众测质检38.xlsx when that Windows legacy file exists;
+   override with QC_SOURCE_XLSX or --out)
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from openpyxl.utils import get_column_letter
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+from lib.paths import default_source_xlsx  # noqa: E402
 from push_feishu import (  # noqa: E402
     cell_to_text,
     get_sheet_meta,
@@ -32,7 +35,7 @@ from push_feishu import (  # noqa: E402
 DEFAULT_WIKI = "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=uBlwx4"
 DEFAULT_SHEET_ID = "uBlwx4"
 DEFAULT_PROFILE = "quan"
-DEFAULT_OUT = Path("D:/fz/fangzhou/众测质检38.xlsx")
+DEFAULT_OUT = default_source_xlsx()
 PERIOD_CHOICES = {
     "38期": (DEFAULT_WIKI, DEFAULT_SHEET_ID),
 }

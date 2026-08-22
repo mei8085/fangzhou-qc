@@ -38,11 +38,8 @@ def ensure(venv_dir: Path, requirements: Path) -> Path:
 
 
 def _python_bin(venv_dir: Path) -> Path:
-    if (venv_dir / "Scripts" / "python.exe").exists() or venv_dir.name.startswith("venv_"):
-        # Windows layout (also the default target when creating on Windows)
-        candidate = venv_dir / "Scripts" / "python.exe"
-        if candidate.exists() or (venv_dir / "Scripts").exists():
-            return candidate
+    if sys.platform == "win32":
+        return venv_dir / "Scripts" / "python.exe"
     return venv_dir / "bin" / "python"
 
 

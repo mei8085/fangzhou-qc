@@ -31,39 +31,19 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageChops
-
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from lib.fonts import CJK_FONT_CANDIDATES, FONT_CANDIDATES, load_font  # noqa: E402
+from PIL import Image, ImageDraw, ImageChops
+
 REPO_ROOT = HERE.parent.parent.parent
 
-_FONT_CANDIDATES = [
-    r"C:\Windows\Fonts\msyh.ttc",
-    r"C:\Windows\Fonts\simhei.ttf",
-    r"C:\Windows\Fonts\simsun.ttc",
-    r"C:\Windows\Fonts\consola.ttf",
-    r"C:\Windows\Fonts\cour.ttf",
-    "/System/Library/Fonts/STHeiti Medium.ttc",
-    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-    "/Library/Fonts/Menlo.ttc",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-]
-_LABEL_FONT_CANDIDATES = [
-    r"C:\Windows\Fonts\msyh.ttc",
-    r"C:\Windows\Fonts\simhei.ttf",
-    "/System/Library/Fonts/STHeiti Medium.ttc",
-    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-]
+_FONT_CANDIDATES = FONT_CANDIDATES
+_LABEL_FONT_CANDIDATES = CJK_FONT_CANDIDATES
 
 
-def load_font(candidates, size):
-    for p in candidates:
-        if Path(p).exists():
-            try:
-                return ImageFont.truetype(p, size)
-            except OSError:
-                continue
-    return ImageFont.load_default()
+def _npm_cmd() -> list[str]:
+    return ["npm.cmd" if os.name == "nt" else "npm"]
 
 
 def detect_test_command(model_dir: Path) -> list[str]:
@@ -76,10 +56,10 @@ def detect_test_command(model_dir: Path) -> list[str]:
         try:
             scripts = json.loads(pkg.read_text(encoding="utf-8")).get("scripts", {})
             if "test:run" in scripts:
-                return ["npm", "run", "test:run"]
+                return [*_npm_cmd(), "run", "test:run"]
         except Exception:
             pass
-    return ["npm", "test"]
+    return [*_npm_cmd(), "test"]
 
 
 def detect_cli_command(model_dir: Path) -> list[str] | None:
@@ -126,8 +106,10 @@ def run_command(model_dir: Path, cmd: list[str], timeout: int = 120) -> str:
         # Keep unrelated globally installed pytest plugins from breaking task-local tests.
         env.setdefault("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
     try:
+        use_shell = os.name == "nt" and bool(cmd) and Path(cmd[0]).name.lower().startswith("npm")
         r = subprocess.run(
-            cmd, cwd=model_dir, capture_output=True, text=True, shell=False, timeout=120, env=env,
+            cmd, cwd=model_dir, capture_output=True, text=True,
+            shell=use_shell, timeout=timeout, env=env,
         )
     except Exception as e:
         return f"<failed to run {' '.join(cmd)}: {e}>"
@@ -175,7 +157,10 @@ def read_report(model_dir: Path, report_rel: str, max_lines: int = 64) -> str:
     p = model_dir / report_rel
     if not p.exists():
         try:
-            subprocess.run(["npm", "run", "report"], cwd=model_dir, capture_output=True, shell=True, timeout=120)
+            subprocess.run(
+                [*_npm_cmd(), "run", "report"],
+                cwd=model_dir, capture_output=True, shell=(os.name == "nt"), timeout=120,
+            )
         except Exception:
             pass
     if not p.exists():

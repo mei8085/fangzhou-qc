@@ -17,7 +17,7 @@ async function main() {
   const url = `https://sd8c3fetlp0rb5mhmacf0.apigateway-cn-shanghai.volceapi.com/task.html?view_user=${view_user}&task=${task_id}&model=${model_code}&page=trajectory`;
   console.log('url:', url);
 
-  const outDir = path.join('D:/fz/fangzhou/fangzhou/tasks', '_probe_platform');
+  const outDir = path.join(path.resolve(__dirname, '..', '..', '..', '..'), 'tasks', '_probe_platform');
   fs.mkdirSync(outDir, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });

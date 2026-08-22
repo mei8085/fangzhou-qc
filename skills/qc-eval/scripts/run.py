@@ -1,10 +1,10 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """End-to-end orchestrator for QC tasks assigned to a reviewer.
 
 Usage
 -----
     run.py <REVIEWER> [TASK_ID ...]
-        [--source D:/fz/fangzhou/众测质检38.xlsx] [--sheet 38期coding质检]
+        [--source <repo>/data/众测质检38.xlsx] [--sheet 38期coding质检]
         [--prep-only | --emit-only] [--dry-run] [--list]
 
 Two ways to choose tasks:
@@ -54,11 +54,12 @@ from pathlib import Path
 import openpyxl
 
 HERE = Path(__file__).resolve().parent
-SKILL_DIR = HERE.parent
-REPO_ROOT = SKILL_DIR.parent.parent
+sys.path.insert(0, str(HERE))
+from lib.paths import REPO_ROOT, default_source_xlsx  # noqa: E402
+
 TASKS_DIR = REPO_ROOT / "tasks"
 
-DEFAULT_SOURCE = Path("D:/fz/fangzhou/众测质检38.xlsx")
+DEFAULT_SOURCE = default_source_xlsx()
 DEFAULT_SHEET = "38期coding质检"
 ALLOWED_SHEETS = {DEFAULT_SHEET}
 PLATFORM_PERIODS = set()

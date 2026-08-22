@@ -12,28 +12,20 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw
 
 HERE = Path(__file__).resolve().parent
-REPO_ROOT = HERE.parent.parent.parent
+sys.path.insert(0, str(HERE))
+from lib.fonts import MONO_FONT_CANDIDATES, load_font as _load_font  # noqa: E402
 
-FONT_CANDIDATES = [
-    r"C:\Windows\Fonts\consola.ttf",
-    r"C:\Windows\Fonts\cour.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-]
+REPO_ROOT = HERE.parent.parent.parent
 
 
 def load_font(size: int):
-    for p in FONT_CANDIDATES:
-        if Path(p).exists():
-            try:
-                return ImageFont.truetype(p, size)
-            except OSError:
-                pass
-    return ImageFont.load_default()
+    return _load_font(MONO_FONT_CANDIDATES, size)
 
 
 def safe_tag(name: str) -> str:

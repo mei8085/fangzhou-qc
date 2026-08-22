@@ -4,9 +4,11 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
+
 async function main() {
   const url = 'https://sd8c3fetlp0rb5mhmacf0.apigateway-cn-shanghai.volceapi.com/login.html';
-  const outDir = 'D:/fz/fangzhou/fangzhou/tasks/_probe_platform';
+  const outDir = path.join(REPO_ROOT, 'tasks', '_probe_platform');
   fs.mkdirSync(outDir, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });

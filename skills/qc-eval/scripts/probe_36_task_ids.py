@@ -20,6 +20,7 @@ from openpyxl.utils import get_column_letter
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+from lib.paths import default_source_xlsx  # noqa: E402
 from push_feishu import (  # noqa: E402
     cell_to_text,
     get_sheet_meta,
@@ -30,7 +31,7 @@ from push_feishu import (  # noqa: E402
 DEFAULT_WIKI = "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=uBlwx4"
 DEFAULT_SHEET_ID = "uBlwx4"
 DEFAULT_PROFILE = "quan"
-DEFAULT_LOCAL = Path("D:/fz/fangzhou/众测质检38.xlsx")
+DEFAULT_LOCAL = default_source_xlsx()
 
 
 def find_header(values: list[list]) -> tuple[int, dict[str, int]]:

@@ -36,17 +36,12 @@ from compose_cli import (
     render_panel,
     trim_panel,
 )
+from lib.fonts import CJK_FONT_CANDIDATES
 from PIL import Image
 
-# 顶层 Python CLI 的输出经常含中文；`compose_cli._FONT_CANDIDATES` 里的 Consolas
-# 之类 ASCII 等宽字体渲染 CJK 会出方框。这里优先用支持 CJK 的字体（微软雅黑等），
-# 虽然不严格等宽，但至少能读。
+# Prefer CJK-capable faces for Chinese CLI output; fall back to the shared list.
 _CJK_MONO_CANDIDATES = [
-    r"C:\Windows\Fonts\msyh.ttc",
-    r"C:\Windows\Fonts\msyhbd.ttc",
-    r"C:\Windows\Fonts\simsun.ttc",
-    "/System/Library/Fonts/PingFang.ttc",
-    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    *CJK_FONT_CANDIDATES,
     *_FONT_CANDIDATES,
 ]
 

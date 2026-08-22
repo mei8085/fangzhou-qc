@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-const REPO = 'D:/fz/fangzhou/fangzhou';
+const REPO = path.resolve(__dirname, '..', '..', '..', '..');
 const TASK = 'J62S2J';
 const OUT = path.join(REPO, 'delivery', TASK, 'screenshots');
 fs.mkdirSync(OUT, { recursive: true });
