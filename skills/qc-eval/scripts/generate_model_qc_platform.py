@@ -138,7 +138,7 @@ def raw_dirty_values(value) -> list[str]:
     text = str(value).strip()
     if not text:
         return []
-    return [part.strip() for part in re.split(r"[、,，;/|]+", text) if part.strip()]
+    return [part.strip() for part in re.split(r"[、,，;|]+", text) if part.strip()]
 
 
 def map_dirty_tags_to_platform(values) -> list[str]:

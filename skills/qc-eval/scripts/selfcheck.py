@@ -25,6 +25,12 @@ from lib.writing_style import (  # noqa: E402
     repeated_opening_issues,
     scan_banned_style,
 )
+from lib.g1 import (  # noqa: E402
+    FEISHU_DIRTY_TAG_OPTIONS,
+    is_empty_feishu_dirty_tag,
+    is_feishu_dirty_tag_header,
+    to_feishu_dirty_tag,
+)
 
 # ---------- 表头 → reviewer 列定位 ----------
 
@@ -461,6 +467,29 @@ def category_correct_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]
     return {}
 
 
+def g1_dirty_tag_issues(ws, headers: dict[str, int], period: str) -> dict[int, list[str]]:
+    """G1 Feishu dirty-tag cells must be empty or an exact dropdown option."""
+    if period != "G1-new":
+        return {}
+    allowed = set(FEISHU_DIRTY_TAG_OPTIONS)
+    bad: dict[int, list[str]] = {}
+    for header, col in headers.items():
+        if not is_feishu_dirty_tag_header(header):
+            continue
+        raw = cell_text(ws, col)
+        if raw == "非脏数据":
+            bad[col] = ["feishu-dirty-tag-leave-empty"]
+            continue
+        if is_empty_feishu_dirty_tag(raw):
+            continue
+        mapped = to_feishu_dirty_tag(raw)
+        parts = [p for p in mapped.split("、") if p]
+        invalid = [p for p in parts if p not in allowed]
+        if mapped != raw or invalid:
+            bad[col] = [f"invalid-feishu-dirty-tag:{raw}"]
+    return bad
+
+
 def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]], str]:
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb.active
@@ -507,6 +536,8 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
     for col, issues in normal_task_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in category_correct_issues(ws, headers).items():
+        bad.setdefault(col, []).extend(issues)
+    for col, issues in g1_dirty_tag_issues(ws, headers, period).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in machine_qc_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)

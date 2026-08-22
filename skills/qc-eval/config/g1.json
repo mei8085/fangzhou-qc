@@ -9,6 +9,17 @@
   "source_sheet": "Sheet1",
   "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=cHr9N5",
   "feishu_sheet_id": "cHr9N5",
+  "feishu_dirty_tag_options": [
+    "模型资源问题:API请求超时/轨迹大量error",
+    "OpenClaw/Hermes框架问题",
+    "用户问题:低质量任务",
+    "用户问题:敷衍恶意打分",
+    "用户问题:AI打分/AI评价",
+    "用户问题:用户切换模型错误",
+    "用户问题:LLM任务测试VLM能力",
+    "其他"
+  ],
+  "feishu_dirty_tag_empty": "留空，不要填「非脏数据」",
   "output_subdir": "ark_g1",
   "models": [
     {

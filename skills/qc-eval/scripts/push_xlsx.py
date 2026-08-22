@@ -36,6 +36,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from lib.paths import REPO_ROOT, default_g1_source_xlsx, default_38_source_xlsx  # noqa: E402
 from lib.writing_style import compose_feedback_note  # noqa: E402
+from lib.g1 import to_feishu_dirty_tag  # noqa: E402
 
 DEFAULT_SOURCE = default_g1_source_xlsx()
 DEFAULT_SHEET = "Sheet1"
@@ -378,8 +379,12 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
                 value = mdata.get(mkey)
                 if mkey == "note":
                     value = compose_feedback_note(mdata)
-                if mkey == "dirty_tag" and (value is None or not str(value).strip()):
-                    value = "非脏数据"
+                if mkey == "dirty_tag":
+                    is_g1 = any(name.startswith("【G1】") for name in model_names)
+                    if is_g1:
+                        value = to_feishu_dirty_tag(value)
+                    elif value is None or not str(value).strip():
+                        value = "非脏数据"
                 write_value(ws, row, col, value)
         if not mdata:
             print(f"     [warn] qc_cells.sheet.models 里没有 {model!r}")

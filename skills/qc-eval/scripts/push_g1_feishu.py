@@ -30,7 +30,12 @@ SKILL_DIR = HERE.parent
 REPO_ROOT = SKILL_DIR.parent.parent
 sys.path.insert(0, str(HERE))
 
-from lib.g1 import FEISHU_SHEET_ID, FEISHU_WIKI, PERIOD  # noqa: E402
+from lib.g1 import (  # noqa: E402
+    FEISHU_SHEET_ID,
+    FEISHU_WIKI,
+    PERIOD,
+    is_feishu_dirty_tag_header,
+)
 from push_feishu import (  # noqa: E402
     READ_ONLY_HEADERS,
     build_push_targets,
@@ -223,9 +228,10 @@ def main() -> int:
         if not lcol or not rcol:
             continue
         value = ws.cell(2, lcol).value
-        if value is None or (isinstance(value, str) and not value.strip()):
+        text = "" if value is None else str(value)
+        if not text.strip() and not is_feishu_dirty_tag_header(header):
             continue
-        write_cell(token, args.sheet_id, f"{get_column_letter(rcol)}{row}", str(value), args.profile, dry)
+        write_cell(token, args.sheet_id, f"{get_column_letter(rcol)}{row}", text, args.profile, dry)
         text_count += 1
 
     image_count = 0
