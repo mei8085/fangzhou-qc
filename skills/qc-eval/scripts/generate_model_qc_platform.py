@@ -34,6 +34,10 @@ from lib.g1 import (  # noqa: E402
     audit_url_for_run,
     load_g1_config,
 )
+from lib.writing_style import (  # noqa: E402
+    compose_feedback_note,
+    default_audit_reason as build_default_audit_reason,
+)
 
 HIGH_QUALITY = "\u9ad8\u8d28\u91cf"
 QUALIFIED = "\u5408\u683c"
@@ -124,46 +128,6 @@ def audit_evidence_summary(note: str) -> str:
     if len(text) > 54:
         text = text[:54].rstrip("，,、和及与") + "等问题"
     return text
-
-
-def default_audit_reason(feedback_quality: str, dirty_tag: str, note: str = "") -> str:
-    if dirty_tag in ("", DEFAULT_DIRTY_TAG, EMPTY_DIRTY_DISPLAY):
-        dirty_part = "\u672a\u53d1\u73b0\u810f\u6570\u636e\u95ee\u9898"
-    else:
-        dirty_part = f"\u547d\u4e2d\u810f\u6570\u636e\u6807\u7b7e\uff1a{dirty_tag}"
-    summary = audit_evidence_summary(note)
-    if feedback_quality == FULLY_USABLE:
-        if summary:
-            return f"\u6807\u6ce8\u4eba\u53cd\u9988\u6307\u51fa{summary}\uff1b\u590d\u6838\u7ed3\u679c\u4e0e\u4e3b\u8981\u95ee\u9898\u4e00\u81f4\uff0c\u8f93\u51fa\u4ee3\u7801\u6216\u4ea7\u7269\u53ef\u590d\u6838\uff0c{dirty_part}\u3002"
-        return f"\u54cd\u5e94\u5185\u5bb9\u7b26\u5408\u4efb\u52a1\u8981\u6c42\uff0c\u8f93\u51fa\u4ee3\u7801\u6216\u4ea7\u7269\u53ef\u590d\u6838\uff1b\u6807\u6ce8\u4eba\u53cd\u9988\u4e0e\u590d\u6838\u7ed3\u679c\u4e00\u81f4\uff0c{dirty_part}\u3002"
-    if feedback_quality == PARTLY_USABLE:
-        if summary:
-            return f"\u6807\u6ce8\u4eba\u53cd\u9988\u4e3b\u8981\u6d89\u53ca{summary}\uff1b\u590d\u6838\u540e\u8be5\u95ee\u9898\u90e8\u5206\u6210\u7acb\u6216\u8bc1\u636e\u4e0d\u5b8c\u6574\uff0c\u8f93\u51fa\u4ee3\u7801\u6216\u4ea7\u7269\u4ecd\u53ef\u590d\u6838\uff0c{dirty_part}\u3002"
-        return f"\u54cd\u5e94\u5185\u5bb9\u90e8\u5206\u7b26\u5408\u4efb\u52a1\u8981\u6c42\uff0c\u8f93\u51fa\u4ee3\u7801\u6216\u4ea7\u7269\u4ecd\u53ef\u590d\u6838\uff1b\u6807\u6ce8\u4eba\u53cd\u9988\u6709\u504f\u5dee\u6216\u8bc1\u636e\u4e0d\u5b8c\u6574\uff0c{dirty_part}\u3002"
-    if summary:
-        return f"\u6807\u6ce8\u4eba\u53cd\u9988\u4e3b\u8981\u6d89\u53ca{summary}\uff1b\u590d\u6838\u540e\u53cd\u9988\u4e0e\u4ea7\u7269\u8bc1\u636e\u5b58\u5728\u660e\u663e\u51b2\u7a81\u6216\u652f\u6491\u4e0d\u8db3\uff0c{dirty_part}\u3002"
-    return f"\u54cd\u5e94\u5185\u5bb9\u660e\u663e\u504f\u79bb\u4efb\u52a1\u8981\u6c42\uff0c\u6216\u6807\u6ce8\u4eba\u53cd\u9988\u4e0e\u590d\u6838\u7ed3\u679c\u4e0d\u4e00\u81f4\uff1b\u53cd\u9988\u8bc1\u636e\u4e0d\u8db3\u4ee5\u652f\u6491\u7ed3\u8bba\uff0c{dirty_part}\u3002"
-
-
-def compose_feedback_note(data: dict) -> str:
-    note = str(data.get("platform_feedback_note") or data.get("note") or "").strip()
-    if note.startswith("标注人给执行过程"):
-        return note
-    process = data.get("execution_process_score")
-    artifact = data.get("execution_artifact_score")
-    prefix = ""
-    if process is not None or artifact is not None:
-        process_text = "" if process is None else str(process).strip()
-        artifact_text = "" if artifact is None else str(artifact).strip()
-        if process_text and artifact_text:
-            prefix = f"标注人给执行过程 {process_text} 分、执行产物 {artifact_text} 分。"
-        elif process_text:
-            prefix = f"标注人给执行过程 {process_text} 分。"
-        elif artifact_text:
-            prefix = f"标注人给执行产物 {artifact_text} 分。"
-    if prefix and note:
-        return f"{prefix}{note}"
-    return prefix or note
 
 
 def raw_dirty_values(value) -> list[str]:
@@ -269,7 +233,13 @@ def model_fill_row(qc: dict, model_name: str, model_map: dict) -> dict:
     dirty_display = format_dirty_tag(dirty_source)
     audit_reason = str(data.get("audit_reason") or data.get("platform_audit_reason") or "").strip()
     if not audit_reason:
-        audit_reason = default_audit_reason(feedback_quality, dirty_display, note)
+        audit_reason = build_default_audit_reason(
+            feedback_quality,
+            dirty_display,
+            note,
+            salt=f"{qc.get('task_id')}:{model_name}",
+            summary=audit_evidence_summary(note),
+        )
     return {
         "sheet": model_name,
         "code": meta["code"],

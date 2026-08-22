@@ -35,6 +35,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from lib.paths import REPO_ROOT, default_g1_source_xlsx, default_38_source_xlsx  # noqa: E402
+from lib.writing_style import compose_feedback_note  # noqa: E402
 
 DEFAULT_SOURCE = default_g1_source_xlsx()
 DEFAULT_SHEET = "Sheet1"
@@ -217,27 +218,6 @@ def read_sheet_value(sheet: dict, key_or_aliases):
         if key in sheet:
             return sheet[key]
     return None
-
-
-def compose_feedback_note(data: dict) -> str:
-    note = str(data.get("note") or data.get("platform_feedback_note") or "").strip()
-    if note.startswith("标注人给执行过程"):
-        return note
-    process = data.get("execution_process_score")
-    artifact = data.get("execution_artifact_score")
-    prefix = ""
-    if process is not None or artifact is not None:
-        process_text = "" if process is None else str(process).strip()
-        artifact_text = "" if artifact is None else str(artifact).strip()
-        if process_text and artifact_text:
-            prefix = f"标注人给执行过程 {process_text} 分、执行产物 {artifact_text} 分。"
-        elif process_text:
-            prefix = f"标注人给执行过程 {process_text} 分。"
-        elif artifact_text:
-            prefix = f"标注人给执行产物 {artifact_text} 分。"
-    if prefix and note:
-        return f"{prefix}{note}"
-    return prefix or note
 
 
 def has_sheet_key(sheet: dict, key_or_aliases) -> bool:

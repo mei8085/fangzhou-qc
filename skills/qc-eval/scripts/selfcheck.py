@@ -18,6 +18,13 @@ import openpyxl
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
+sys.path.insert(0, str(HERE))
+from lib.writing_style import (  # noqa: E402
+    majority_score_prefix_issues,
+    repeated_audit_ending_issues,
+    repeated_opening_issues,
+    scan_banned_style,
+)
 
 # ---------- 表头 → reviewer 列定位 ----------
 
@@ -104,8 +111,7 @@ def reviewer_columns(headers: dict[str, int]) -> tuple[list[int], set[int]]:
 # 38期反馈质量评的是标注人对模型产出结果的打分与备注。
 # 模型备注必须出现下面任一关键词，说明这段在评"标注人评价是否准确"。
 ANNOTATOR_REF = re.compile(
-    r"标注人|打分|备注|分值|定档|偏(?:高|低)?\s*一?档|方向(?:对|错|准确|有偏差|抓)|"
-    r"识别(?:到|出|准确)|判断(?:准确|对|错|有偏差)|落档|佐证"
+    r"标注人|打分|备注|分值|\d+\s*分|识别(?:到|出|准确)|判断(?:准确|对|错|有偏差)|佐证"
 )
 FORBIDDEN_WORDS = [
     "自动化", "脚本", "pipeline", "compose", "screenshot_vue",
@@ -127,18 +133,21 @@ FORBIDDEN_WORDS = [
     "按评分项规范填写",
 ]
 
-# 交付描述里不要出现 AI 腔短评和生硬程度词。这里单独列出，便于和工程/符号
-# 禁用词区分；推荐改写见 SKILL.md 的写作约束。
+# 交付描述里不要出现 AI 腔短评和档位套话。完整词表见
+# skills/qc-eval/config/writing_style.json；这里保留一份兜底，避免配置缺失时漏拦。
 UNNATURAL_STYLE_WORDS = [
     "更稳", "方向到位", "观察到位", "覆盖到位", "佐证到位",
     "定性正确", "抓得准", "判断落点", "描述属实", "贴合",
     "属实", "靠谱", "偏薄", "兜底",
+    "站得住", "高一档", "低一档", "判断成立", "标签成立",
+    "评分方向合理", "完全吻合", "方向基本准确",
 ]
 UNNATURAL_STYLE_RE = re.compile(
     r"(?:很|挺|蛮|够|更|比较|较|不太|不够)准(?!确)|"
     r"(?:判断|识别|方向)准(?!确)|抓得(?:很)?准(?!确)|"
     r"(?:判断|识别)?落点"
 )
+SCORE_IN_NOTE = re.compile(r"\d+\s*分")
 
 FORBIDDEN_SYM = re.compile(r"[*#]|`")
 
@@ -155,11 +164,10 @@ MAX_LEN = 220
 MAX_CODE_REFS = 3
 
 # 题目质量说明是给表格 reviewer 看的判断依据，只说明题目本身的完整性、
-# 经济价值、评测价值、可复核性和未达高质量原因；不要写页面没有展示的
-# 4 模型总分，也不要把“是否是高质量题目”这个表字段的填写动作写进去。
+# 经济价值、评测价值、可复核性和未达高质量原因；不要把“是否是高质量题目”
+# 这个表字段的填写动作写进去。页面上看不到的聚合分由 writing_style.json
+# 的 page_hidden_* 统一拦截。
 TASK_NOTE_FORBIDDEN_PATTERNS = [
-    (re.compile(r"[45]\s*个模型总分"), "task-note-no-model-total-score"),
-    (re.compile(r"模型总分为"), "task-note-no-model-total-score"),
     (re.compile(r"是否是高质量题目.{0,20}填"), "task-note-no-high-quality-field-self-description"),
     (re.compile(r"填[“\"]?[是否][”\"]?"), "task-note-no-field-fill-instruction"),
 ]
@@ -173,11 +181,15 @@ MIN_REDLINE_EVIDENCE_LEN = 20
 
 def scan_style_only(s: str) -> list[str]:
     issues: list[str] = []
+    issues.extend(scan_banned_style(s))
     for w in UNNATURAL_STYLE_WORDS:
-        if w in s:
-            issues.append(f"style:{w}")
+        token = f"style:{w}"
+        if w in s and token not in issues:
+            issues.append(token)
     for m in UNNATURAL_STYLE_RE.findall(s):
-        issues.append(f"style:{m}")
+        token = f"style:{m}"
+        if token not in issues:
+            issues.append(token)
     return issues
 
 
@@ -200,6 +212,8 @@ def scan_cell(s: str, *, col: int, model_note_cols: set[int], period: str) -> li
     if col in model_note_cols:
         if not ANNOTATOR_REF.search(s):
             issues.append("not-evaluating-annotator")
+        if period == "G1-new" and not SCORE_IN_NOTE.search(s):
+            issues.append("model-note-missing-score")
     return issues
 
 
@@ -215,11 +229,41 @@ def check_platform_qc_md(md_path: Path) -> list[str]:
     if not md_path.exists():
         return []
     issues: list[str] = []
+    label = md_path.name
     for idx, line in enumerate(md_path.read_text(encoding="utf-8-sig").splitlines(), start=1):
         found = scan_style_only(line)
         if found:
-            issues.append(f"line {idx}: {found}")
+            issues.append(f"{label}:{idx}: {found}")
     return issues
+
+
+def previous_task_opening_issues(task_id: str, current_text: str) -> list[str]:
+    """Flag a 题目质量说明 that reuses the previous delivery's opening."""
+    current = str(current_text or "").strip()[:10]
+    if len(current) < 8:
+        return []
+    delivery = REPO_ROOT / "delivery"
+    if not delivery.exists():
+        return []
+    others: list[tuple[float, Path]] = []
+    for folder in delivery.iterdir():
+        if not folder.is_dir() or folder.name == task_id:
+            continue
+        xlsx = folder / f"{folder.name}.xlsx"
+        if xlsx.exists():
+            others.append((xlsx.stat().st_mtime, xlsx))
+    if not others:
+        return []
+    others.sort(key=lambda item: item[0], reverse=True)
+    prev_xlsx = others[0][1]
+    wb = openpyxl.load_workbook(prev_xlsx, data_only=True)
+    ws = wb.active
+    headers = find_headers(ws)
+    prev_col = headers.get(_PROMPT_QUALITY_NOTE_HEADER)
+    prev_text = str(ws.cell(2, prev_col).value or "").strip()[:10] if prev_col else ""
+    if prev_text and prev_text == current:
+        return [f"style-same-task-opening-as-previous:{prev_xlsx.parent.name}"]
+    return []
 
 
 def split_redline_options(s: str) -> list[str]:
@@ -417,7 +461,7 @@ def category_correct_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]
     return {}
 
 
-def check_xlsx(xlsx_path: Path) -> tuple[dict[int, list[str]], str]:
+def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]], str]:
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb.active
     headers = find_headers(ws)
@@ -435,10 +479,25 @@ def check_xlsx(xlsx_path: Path) -> tuple[dict[int, list[str]], str]:
             issues.extend(scan_task_quality_note(text))
         if issues:
             bad[c] = issues
+    model_notes = [cell_text(ws, c) for c in sorted(model_note_cols)]
+    variety_anchor = min(model_note_cols) if model_note_cols else None
+    if variety_anchor:
+        for issue in repeated_opening_issues(model_notes):
+            bad.setdefault(variety_anchor, []).append(issue)
+        for issue in majority_score_prefix_issues(model_notes):
+            bad.setdefault(variety_anchor, []).append(issue)
     platform_audit_col = headers.get(_PLATFORM_AUDIT_HEADER)
     platform_audit_text = cell_text(ws, platform_audit_col)
-    if platform_audit_col and "任务质量高" in platform_audit_text:
-        bad.setdefault(platform_audit_col, []).append("platform-audit-no-任务质量高")
+    if platform_audit_col and platform_audit_text:
+        for issue in scan_style_only(platform_audit_text):
+            bad.setdefault(platform_audit_col, []).append(issue)
+        for issue in repeated_audit_ending_issues(platform_audit_text):
+            bad.setdefault(platform_audit_col, []).append(issue)
+        if "任务质量高" in platform_audit_text:
+            bad.setdefault(platform_audit_col, []).append("platform-audit-no-任务质量高")
+    if task_id and task_note_col:
+        for issue in previous_task_opening_issues(task_id, cell_text(ws, task_note_col)):
+            bad.setdefault(task_note_col, []).append(issue)
     redline_col = redline_header_col(headers)
     redline_issues = redline_consistency_issues(ws, headers)
     if redline_col and redline_issues:
@@ -464,8 +523,11 @@ def main() -> int:
         if not xlsx.exists():
             print(f"  [skip] {tid}: {xlsx} not found")
             continue
-        bad, period = check_xlsx(xlsx)
+        bad, period = check_xlsx(xlsx, tid)
         md_issues = check_platform_qc_md(REPO_ROOT / "delivery" / tid / "platform_qc.md")
+        md_issues.extend(
+            check_platform_qc_md(REPO_ROOT / "delivery" / tid / f"{tid}_model_qc_platform.md")
+        )
         if bad or md_issues:
             print(f"  [BAD] {tid}  ({period})")
             for col, issues in bad.items():
