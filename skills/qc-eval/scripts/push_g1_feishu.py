@@ -34,12 +34,16 @@ from lib.g1 import (  # noqa: E402
     FEISHU_SHEET_ID,
     FEISHU_WIKI,
     PERIOD,
+    is_empty_feishu_dirty_tag,
     is_feishu_dirty_tag_header,
+    is_feishu_dirty_tag_related_header,
+    to_feishu_dirty_tag,
 )
 from push_feishu import (  # noqa: E402
     READ_ONLY_HEADERS,
     build_push_targets,
     cell_to_text,
+    clear_cell,
     get_sheet_meta,
     read_range,
     resolve_spreadsheet_token,
@@ -229,9 +233,29 @@ def main() -> int:
             continue
         value = ws.cell(2, lcol).value
         text = "" if value is None else str(value)
-        if not text.strip() and not is_feishu_dirty_tag_header(header):
+        cell_a1 = f"{get_column_letter(rcol)}{row}"
+        if is_feishu_dirty_tag_header(header):
+            # Dropdown cells: writing "" is not a valid option and Feishu shows
+            # 「数据无效」. Clear content instead, same as a manual cell clear.
+            if is_empty_feishu_dirty_tag(text):
+                clear_cell(token, args.sheet_id, cell_a1, args.profile, dry)
+            else:
+                write_cell(
+                    token,
+                    args.sheet_id,
+                    cell_a1,
+                    to_feishu_dirty_tag(text),
+                    args.profile,
+                    dry,
+                )
+            text_count += 1
             continue
-        write_cell(token, args.sheet_id, f"{get_column_letter(rcol)}{row}", text, args.profile, dry)
+        if not text.strip():
+            if is_feishu_dirty_tag_related_header(header):
+                clear_cell(token, args.sheet_id, cell_a1, args.profile, dry)
+                text_count += 1
+            continue
+        write_cell(token, args.sheet_id, cell_a1, text, args.profile, dry)
         text_count += 1
 
     image_count = 0

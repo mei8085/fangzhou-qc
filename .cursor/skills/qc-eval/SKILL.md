@@ -17,4 +17,6 @@ description: >-
 
 不要绕过 `skills/qc-eval/scripts/` 中的脚本直接调平台 API、lark-cli 或用 openpyxl 写盘。
 
+质量备注和审核理由必须写清本条反馈质量为什么是高质量 / 合格 / 不合格；细则见权威 SKILL「写作约束」。
+
 跨平台约定写在权威 SKILL 的「运行环境」一节：源表默认 `docs/G1-new.xlsx`，Python 用 `python3`，Ark 登录可用 `auth-from-chrome` 或 `auth-login`。复测是本机起服务还是 SSH 到 `u03l` 用 Docker，以权威 SKILL 的「复测启动与截图」为准。

@@ -22,14 +22,18 @@ REPO_ROOT = HERE.parent.parent.parent
 sys.path.insert(0, str(HERE))
 from lib.writing_style import (  # noqa: E402
     majority_score_prefix_issues,
+    opening_family_example_issues,
     repeated_audit_ending_issues,
     repeated_opening_issues,
     scan_banned_style,
+    scan_feedback_rating_rationale,
 )
+from check_prompt_cheat import build_notes  # noqa: E402
 from lib.g1 import (  # noqa: E402
     FEISHU_DIRTY_TAG_OPTIONS,
     is_empty_feishu_dirty_tag,
     is_feishu_dirty_tag_header,
+    sheet_model_label,
     to_feishu_dirty_tag,
 )
 from lib.prompt_cheat import is_prompt_cheat_task  # noqa: E402
@@ -151,6 +155,7 @@ UNNATURAL_STYLE_WORDS = [
     "评分方向合理", "完全吻合", "方向基本准确",
     "说得通", "对得上", "对不上", "能对上", "全对上",
     "写重了", "抬上去", "抬在", "没有抬", "过重",
+    "同向", "偏松", "偏严",
 ]
 UNNATURAL_STYLE_RE = re.compile(
     r"(?:很|挺|蛮|够|更|比较|较|不太|不够)准(?!确)|"
@@ -508,6 +513,55 @@ def g1_dirty_tag_issues(ws, headers: dict[str, int], period: str) -> dict[int, l
     return bad
 
 
+def audit_line_for_model(combined: str, model: str) -> str:
+    """Return the per-model sentence from the combined platform-audit cell."""
+    label = sheet_model_label(model)
+    prefixes = (f"{label}：", f"{label}:", f"{model}：", f"{model}:")
+    for line in str(combined or "").splitlines():
+        text = line.strip()
+        for prefix in prefixes:
+            if text.startswith(prefix):
+                return text[len(prefix):].strip()
+    return ""
+
+
+def feedback_rating_rationale_issues(
+    ws,
+    headers: dict[str, int],
+    qc: dict | None,
+    *,
+    prompt_cheat: bool,
+) -> dict[int, list[str]]:
+    """Require each model note/audit to explain 高质量 / 合格 / 不合格."""
+    combined = cell_text(ws, headers.get(_PLATFORM_AUDIT_HEADER))
+    qc_models = ((qc or {}).get("sheet") or {}).get("models") or {}
+    bad: dict[int, list[str]] = {}
+    for model, rating_col, note_col in model_rating_note_cols(headers):
+        rating = cell_text(ws, rating_col)
+        note = cell_text(ws, note_col)
+        data = qc_models.get(model) or {}
+        audit = str(
+            data.get("platform_audit_reason") or data.get("audit_reason") or ""
+        ).strip() or audit_line_for_model(combined, model)
+        issues = scan_feedback_rating_rationale(
+            note,
+            audit,
+            rating,
+            prompt_cheat=prompt_cheat,
+        )
+        if not issues:
+            continue
+        target = note_col or rating_col
+        bad.setdefault(target, []).extend(issues)
+        if any(item.startswith("audit-") for item in issues) and headers.get(
+            _PLATFORM_AUDIT_HEADER
+        ):
+            bad.setdefault(headers[_PLATFORM_AUDIT_HEADER], []).extend(
+                [item for item in issues if item.startswith("audit-")]
+            )
+    return bad
+
+
 def load_qc_cells(task_id: str) -> dict | None:
     """Return tasks/<TASK_ID>/qc_cells.json when the file exists."""
     if not task_id:
@@ -581,7 +635,23 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
         bad.setdefault(col, []).extend(issues)
     for col, issues in machine_qc_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
+    for col, issues in feedback_rating_rationale_issues(
+        ws, headers, qc, prompt_cheat=prompt_cheat
+    ).items():
+        bad.setdefault(col, []).extend(issues)
     return bad, period
+
+
+def writing_template_issues() -> list[str]:
+    """Canned examples in writing_style.json and cheat notes must pass rationale rules."""
+    issues = opening_family_example_issues()
+    _, specs = build_notes("工具轮次达到 450")
+    for idx, (note, audit) in enumerate(specs):
+        for item in scan_feedback_rating_rationale(
+            note, audit, "不合格", prompt_cheat=True
+        ):
+            issues.append(f"cheat-template-{idx}:{item}")
+    return issues
 
 
 def main() -> int:
@@ -589,6 +659,12 @@ def main() -> int:
     p.add_argument("task_ids", nargs="+")
     args = p.parse_args()
     total_bad = 0
+    template_issues = writing_template_issues()
+    if template_issues:
+        print("  [BAD] writing templates")
+        for issue in template_issues:
+            print(f"     {issue}")
+        total_bad += 1
     for tid in args.task_ids:
         xlsx = REPO_ROOT / "delivery" / tid / f"{tid}.xlsx"
         if not xlsx.exists():

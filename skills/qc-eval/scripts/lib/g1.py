@@ -131,6 +131,16 @@ def is_feishu_dirty_tag_header(header: str) -> bool:
     return name.endswith("脏数据标签") and not name.endswith("脏数据标签理由")
 
 
+def is_feishu_dirty_tag_reason_header(header: str) -> bool:
+    """Return True for per-model dirty-tag reason columns."""
+    return str(header or "").strip().endswith("脏数据标签理由")
+
+
+def is_feishu_dirty_tag_related_header(header: str) -> bool:
+    """Return True for dirty-tag dropdowns and their reason columns."""
+    return is_feishu_dirty_tag_header(header) or is_feishu_dirty_tag_reason_header(header)
+
+
 def _normalize_dirty_tag(value: str) -> str:
     text = str(value or "").strip().replace("：", ":")
     text = re.sub(r"\s+", "", text)

@@ -348,6 +348,28 @@ def write_cell(token: str, sheet_id: str, cell: str, value, profile: str, dry: b
     lark(args, profile=profile)
 
 
+def clear_cell(token: str, sheet_id: str, cell: str, profile: str, dry: bool) -> None:
+    """Clear cell content without writing an empty string.
+
+    Feishu dropdown validation treats a written ``""`` as an invalid option and
+    shows 「数据无效」. A true-empty cell (the same as manually clearing the
+    cell) is allowed. ``+cells-clear --scope content`` matches that manual
+    clear and keeps the dropdown rule.
+    """
+    args = [
+        "sheets", "+cells-clear",
+        "--spreadsheet-token", token,
+        "--sheet-id", sheet_id,
+        "--range", cell,
+        "--scope", "content",
+        "--yes",
+    ]
+    if dry:
+        print(f"     [dry] clear {cell}")
+        return
+    lark(args, profile=profile)
+
+
 def write_image(token: str, sheet_id: str, cell: str, image: Path, profile: str, dry: bool) -> None:
     # lark-cli 拒收绝对路径，强制走 image 的父目录 + basename
     args = ["sheets", "+cells-set-image",
