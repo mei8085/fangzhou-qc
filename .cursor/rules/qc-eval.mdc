@@ -15,6 +15,6 @@ alwaysApply: true
 - 单题工作目录：`tasks/<TASK_ID>/`
 - 交付目录：`delivery/<TASK_ID>/`（单任务 xlsx + 复测截图）
 - 不要绕过 `skills/qc-eval/scripts/` 中的脚本直接调平台 API / lark-cli / openpyxl 写盘。
-- 不要复用 `tasks/<TASK_ID>/extracted/comments/` 里标注人的截图作为本人复测证据，必须用 `screenshot_vue.js` / `compose_cli.py` 现场出图。
+- 不要复用 `tasks/<TASK_ID>/extracted/comments/` 里标注人的截图作为本人复测证据；现场出图按 `skills/qc-eval/SKILL.md` 的「复测启动与截图」选题型脚本（本机或 u03l Docker），不要手写绕过。
 - 不要在本规则文件、CLAUDE.md、AGENTS.md 中复制 SKILL.md 的流程；以 SKILL.md 为唯一权威。
 

@@ -65,3 +65,5 @@
 - 其他
 
 底部按钮：返回列表 / 保存草稿 / 打回 / 提交审核
+
+用户明确要求填写网页表单时，用 `node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>` 按填写文件写入「质检」面板，并只点「保存草稿」。禁止提交审核。

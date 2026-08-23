@@ -10,6 +10,7 @@ Exit code: 0=clean, 1=has issues.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -31,6 +32,7 @@ from lib.g1 import (  # noqa: E402
     is_feishu_dirty_tag_header,
     to_feishu_dirty_tag,
 )
+from lib.prompt_cheat import is_prompt_cheat_task  # noqa: E402
 
 # ---------- 表头 → reviewer 列定位 ----------
 
@@ -147,6 +149,8 @@ UNNATURAL_STYLE_WORDS = [
     "属实", "靠谱", "偏薄", "兜底",
     "站得住", "高一档", "低一档", "判断成立", "标签成立",
     "评分方向合理", "完全吻合", "方向基本准确",
+    "说得通", "对得上", "对不上", "能对上", "全对上",
+    "写重了", "抬上去", "抬在", "没有抬", "过重",
 ]
 UNNATURAL_STYLE_RE = re.compile(
     r"(?:很|挺|蛮|够|更|比较|较|不太|不够)准(?!确)|"
@@ -199,7 +203,14 @@ def scan_style_only(s: str) -> list[str]:
     return issues
 
 
-def scan_cell(s: str, *, col: int, model_note_cols: set[int], period: str) -> list[str]:
+def scan_cell(
+    s: str,
+    *,
+    col: int,
+    model_note_cols: set[int],
+    period: str,
+    skip_annotator_checks: bool = False,
+) -> list[str]:
     issues = []
     for w in FORBIDDEN_WORDS:
         if w in s:
@@ -215,7 +226,7 @@ def scan_cell(s: str, *, col: int, model_note_cols: set[int], period: str) -> li
         issues.append("too-many-code-refs")
     if TRAILING_VERDICT.search(s):
         issues.append("trailing-verdict")
-    if col in model_note_cols:
+    if col in model_note_cols and not skip_annotator_checks:
         if not ANNOTATOR_REF.search(s):
             issues.append("not-evaluating-annotator")
         if period == "G1-new" and not SCORE_IN_NOTE.search(s):
@@ -309,6 +320,12 @@ def can_carry_feedback_redline(ws, col: int | None) -> bool:
     return "红线" in value or value == "不合格"
 
 
+def can_carry_task_redline(ws, col: int | None) -> bool:
+    """Task-quality 不合格 can carry 题目红线 tags such as 题目不合理."""
+    value = cell_text(ws, col)
+    return "红线" in value or value == "不合格"
+
+
 def model_rating_note_cols(headers: dict[str, int]) -> list[tuple[str, int, int | None]]:
     out = []
     for h, rating_col in headers.items():
@@ -342,6 +359,7 @@ def redline_consistency_issues(ws, headers: dict[str, int]) -> list[str]:
     valid_options = [v for v in canonical_options if v]
 
     task_rating_redline = is_redline_rating(ws, headers.get(_TASK_RATING_HEADER))
+    task_can_carry_redline = can_carry_task_redline(ws, headers.get(_TASK_RATING_HEADER))
     task_note = cell_text(ws, headers.get("题目质量说明"))
     redline_model_notes = [
         cell_text(ws, note_col)
@@ -368,11 +386,11 @@ def redline_consistency_issues(ws, headers: dict[str, int]) -> list[str]:
     has_feedback_tag = bool(selected_set & FEEDBACK_REDLINE_OPTIONS)
     if task_rating_redline and selected and not has_task_tag:
         issues.append("task-redline-missing-task-tag")
-    if has_model_redline and selected and not has_feedback_tag:
+    if has_model_redline and selected and not has_feedback_tag and not has_task_tag:
         issues.append("feedback-redline-missing-feedback-tag")
 
     for opt in selected_set:
-        if opt in TASK_REDLINE_OPTIONS and not task_rating_redline:
+        if opt in TASK_REDLINE_OPTIONS and not task_can_carry_redline:
             issues.append(f"task-redline-tag-without-task-redline-rating:{opt}")
         elif opt == "任务质量（题目质量）触及红线" and not task_rating_redline:
             issues.append("feedback-task-quality-tag-without-task-redline")
@@ -490,6 +508,19 @@ def g1_dirty_tag_issues(ws, headers: dict[str, int], period: str) -> dict[int, l
     return bad
 
 
+def load_qc_cells(task_id: str) -> dict | None:
+    """Return tasks/<TASK_ID>/qc_cells.json when the file exists."""
+    if not task_id:
+        return None
+    path = REPO_ROOT / "tasks" / task_id / "qc_cells.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return None
+
+
 def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]], str]:
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb.active
@@ -497,20 +528,28 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
     period = detect_period(headers)
     cols, model_note_cols = reviewer_columns(headers)
     task_note_col = headers.get(_PROMPT_QUALITY_NOTE_HEADER)
+    qc = load_qc_cells(task_id)
+    prompt_cheat = bool(task_id) and is_prompt_cheat_task(REPO_ROOT / "tasks" / task_id, qc)
     bad: dict[int, list[str]] = {}
     for c in cols:
         v = ws.cell(2, c).value
         if not v:
             continue
         text = str(v)
-        issues = scan_cell(text, col=c, model_note_cols=model_note_cols, period=period)
+        issues = scan_cell(
+            text,
+            col=c,
+            model_note_cols=model_note_cols,
+            period=period,
+            skip_annotator_checks=prompt_cheat,
+        )
         if c == task_note_col:
             issues.extend(scan_task_quality_note(text))
         if issues:
             bad[c] = issues
     model_notes = [cell_text(ws, c) for c in sorted(model_note_cols)]
     variety_anchor = min(model_note_cols) if model_note_cols else None
-    if variety_anchor:
+    if variety_anchor and not prompt_cheat:
         for issue in repeated_opening_issues(model_notes):
             bad.setdefault(variety_anchor, []).append(issue)
         for issue in majority_score_prefix_issues(model_notes):
@@ -520,8 +559,9 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
     if platform_audit_col and platform_audit_text:
         for issue in scan_style_only(platform_audit_text):
             bad.setdefault(platform_audit_col, []).append(issue)
-        for issue in repeated_audit_ending_issues(platform_audit_text):
-            bad.setdefault(platform_audit_col, []).append(issue)
+        if not prompt_cheat:
+            for issue in repeated_audit_ending_issues(platform_audit_text):
+                bad.setdefault(platform_audit_col, []).append(issue)
         if "任务质量高" in platform_audit_text:
             bad.setdefault(platform_audit_col, []).append("platform-audit-no-任务质量高")
     if task_id and task_note_col:

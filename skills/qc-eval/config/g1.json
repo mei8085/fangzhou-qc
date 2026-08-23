@@ -5,6 +5,7 @@
   "task_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/277/task/{taskId}",
   "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277/review/{taskModelRunId}?mode=audit",
   "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
+  "audit_form_fill_script": "skills/qc-eval/scripts/fill_g1_audit_form.js",
   "source_xlsx": "docs/G1-new.xlsx",
   "source_sheet": "Sheet1",
   "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=cHr9N5",

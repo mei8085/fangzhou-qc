@@ -51,6 +51,8 @@ _FEISHU_DIRTY_ALIAS = {
     "用户切换模型错误": FEISHU_DIRTY_TAG_OPTIONS[5],
     "llm任务测试vlm能力": FEISHU_DIRTY_TAG_OPTIONS[6],
     "题目红线（prompt 简单 / vlm 错配）": FEISHU_DIRTY_TAG_OPTIONS[6],
+    "提示词轮次作弊": FEISHU_DIRTY_TAG_OPTIONS[2],
+    "轮次作弊": FEISHU_DIRTY_TAG_OPTIONS[2],
 }
 
 # sheet header prefix → platform codeName

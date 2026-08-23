@@ -377,7 +377,7 @@ def emit_one(task_id: str, dry: bool, *, period: str, sheet: str, source: Path) 
         shot_note = "static evidence screenshots" if _verifiable == "?" else "attachment fallback screenshots"
         print(f"  emit OK — 38期交付物在 delivery/{task_id}/（xlsx + {shot_note}；不生成 platform_qc.md）")
         return True
-    # verifiable=是 且 verify_routes.json 就位：接一段全栈验证
+    # verifiable=是 且 verify_routes.json 就位：按 SKILL.md「复测启动与截图」走 u03l 全栈验证
     if _verifiable == "是" and (TASKS_DIR / task_id / "verify_routes.json").exists():
         banner(f"verify  {task_id}")
         rc = run_py("verify_fullstack.py", task_id, dry=dry)
@@ -417,7 +417,7 @@ def emit_one(task_id: str, dry: bool, *, period: str, sheet: str, source: Path) 
         print(f"  [warn] 题型识别不出来；请手动跑截图后再来跑 push_xlsx{tail}")
         return False
     # 空白截图卡点：跑不通的场景必须换成报错终端 / console / 出错源码，
-    # 不能把白屏当证据。见 SKILL.md 第 5 节。
+    # 不能把白屏当证据。见 SKILL.md「复测启动与截图」。
     if run_py("blank_guard.py", task_id, dry=dry) != 0:
         print(
             f"  emit 中止：某张截图接近纯色。请补一张报错终端或出错源码文件的截图，"

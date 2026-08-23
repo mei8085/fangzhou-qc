@@ -83,7 +83,7 @@ function printManualSteps(taskId, map, basePort) {
   console.log('合成图（黑底、不缩放、横向并排）将出现在 `delivery/' + taskId + '/screenshots/<COL>_verify.png`。');
 }
 
-function sanitize(s) { return s.replace(/[^A-Za-z0-9._-]+/g, '_'); }
+function sanitize(s) { return s.replace(/ /g, '_'); }
 
 function stripAnsi(s) { return s.replace(/\x1b\[[0-9;]*m/g, ''); }
 
@@ -93,8 +93,9 @@ async function waitForViteUrl(child, timeoutMs = 60000) {
     const onData = (chunk) => {
       buf += chunk.toString();
       const clean = stripAnsi(buf);
-      // vite prints "  ➜  Local:   http://localhost:5173/"
-      const m = clean.match(/Local:\s*(https?:\/\/[^\s]+?\/)/);
+      // vite prints "  ➜  Local:   http://localhost:5173/" or
+      // "http://localhost:5173/yu-gi-oh/" when `base` is not "/".
+      const m = clean.match(/Local:\s*(https?:\/\/\S+)/);
       if (m) {
         const url = m[1];
         child.stdout.off('data', onData);

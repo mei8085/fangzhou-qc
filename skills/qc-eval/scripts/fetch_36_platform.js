@@ -93,6 +93,7 @@ notes:
   If cookie export fails, it falls back to auth-login (headed Playwright window).
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
   collect reads task/model rows, per-run evaluation/audit data, 下载列表, workspace zip, and session trajectory JSON.
+  After CaseBffV1CrowdtestTaskGet, collect scans the prompt for round-quota cheating. A hit skips workspace/trajectory/download-list.
   G1-new: search by 任务ID on project 277, then collect the 5 model rows (模型运行 + 下载列表).`);
   process.exit(code);
 }
@@ -340,14 +341,20 @@ async function fetchWorkspaceZip(ctx, statePath, run, runDir, opts) {
     writeJSON(path.join(workspaceDir, 'latest_list_item.json'), latestItem);
   }
 
-  let job = latestItem;
-  const latestUrl = latestItem && (latestItem.downloadUrl || latestItem.url || latestItem.packageUrl);
+  const expired = Boolean(
+    latestItem && latestItem.expiresAt && Number(latestItem.expiresAt) < Date.now(),
+  );
+  let job = expired ? null : latestItem;
+  const latestUrl = !expired && latestItem && (latestItem.downloadUrl || latestItem.url || latestItem.packageUrl);
   if (latestUrl) {
     const fileName = sanitize(latestItem.fileName || `${run.task.id}-${runId}-${run.modelRun.codeName}.zip`);
     return downloadTo(latestUrl, path.join(workspaceDir, fileName), opts.keepExisting);
   }
 
   if (!job || !job.jobId || latestItem && latestItem.downloadReady === false && !latestItem.jobId) {
+    if (expired) {
+      console.log(`   [workspace] run ${runId} latest package expired, starting a new job`);
+    }
     job = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelWorkspaceDownloadStart', { taskModelRunId: runId });
   }
   const started = Date.now();
@@ -621,6 +628,7 @@ async function collect(opts) {
     skipTrajectory: Boolean(opts['skip-trajectory']),
     skipDownloadList: Boolean(opts['skip-download-list']),
     keepExisting: Boolean(opts['keep-existing']),
+    promptCheat: false,
     pollMs: Number(opts['poll-ms'] || 2500),
     timeoutMs: Number(opts['timeout-ms'] || 10 * 60 * 1000),
   };
@@ -694,6 +702,14 @@ async function collect(opts) {
       writeJSON(taskPath, task);
     }
 
+    if (scanPromptCheat(localId)) {
+      console.log('==> PROMPT CHEAT: skip workspace / trajectory / download-list; do not retest products');
+      runOpts.skipWorkspace = true;
+      runOpts.skipTrajectory = true;
+      runOpts.skipDownloadList = true;
+      runOpts.promptCheat = true;
+    }
+
     console.log(`==> task ${taskId}: ${rows[0].task.title}`);
     console.log(`==> runs: ${rows.map((r) => `${r.modelRun.taskModelRunId}/${r.modelRun.codeName}/${r.modelRun.realName}`).join(', ')}`);
     if (!opts['skip-detail-probe']) {
@@ -726,9 +742,14 @@ async function collect(opts) {
     writeJSON(path.join(tasksDir, localId, 'model_map.json'), {
       period: (g1Config && g1Config.period) || '',
       project_id: projectId,
+      sheet_columns: Object.keys(modelMap),
+      prompt_cheat: Boolean(runOpts.promptCheat),
       models: modelMap,
       generated_at: new Date().toISOString(),
     });
+    if (runOpts.promptCheat) {
+      screenshotPromptCheat(localId);
+    }
     writeJSON(path.join(taskDir, '_summary.json'), {
       sheet_task_id: localId,
       ark_task_id: taskId,
@@ -827,6 +848,43 @@ async function findProject(opts) {
   writeJSON(outPath, { query: { taskKeyword, projectIds }, matches, attempts, generated_at: new Date().toISOString() });
   console.log(`==> wrote ${rel(outPath)}`);
   if (!matches.length) throw new Error(`no project matched keyword: ${taskKeyword}`);
+}
+
+function runPythonQc(scriptName, args) {
+  const py = pythonCmd();
+  const script = path.join(HERE, scriptName);
+  const r = spawnSync(py, [script, ...args], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  return r.status == null ? 1 : r.status;
+}
+
+function scanPromptCheat(taskId) {
+  try {
+    const status = runPythonQc('check_prompt_cheat.py', [String(taskId), '--scan-only']);
+    if (status === 10) return true;
+    if (status !== 0) {
+      console.warn(`   [prompt-cheat] scan exit ${status}; continue collect without skipping products`);
+    }
+    return false;
+  } catch (err) {
+    console.warn(`   [prompt-cheat] scan skipped: ${err.message}`);
+    return false;
+  }
+}
+
+function screenshotPromptCheat(taskId) {
+  try {
+    const status = runPythonQc('check_prompt_cheat.py', [String(taskId)]);
+    if (status !== 0 && status !== 10) {
+      console.warn(`   [prompt-cheat] screenshot exit ${status}`);
+    }
+  } catch (err) {
+    console.warn(`   [prompt-cheat] screenshot skipped: ${err.message}`);
+  }
 }
 
 function run(command, args, options = {}) {

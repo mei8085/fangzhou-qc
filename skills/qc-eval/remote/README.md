@@ -2,6 +2,8 @@
 
 工作机 SSH 别名 `u03l`，Ubuntu 24.04。已经装好 docker.io + docker-compose-v2 + rsync。
 
+何时把服务放到这台机器、何时本机起 dev server：以 `skills/qc-eval/SKILL.md`「复测启动与截图」为准。本文只写机器准备和 `u03l.py` 命令，不复制质检主流程。
+
 ## 已完成的事
 
 1. `sudo apt install docker.io docker-compose-v2 rsync`

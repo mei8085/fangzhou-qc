@@ -617,7 +617,7 @@ def main() -> int:
             (
                 "blank_guard.py",
                 "blank_guard 命中。跑不通的场景请换成报错终端 / console / "
-                "出错源码文件截图，见 SKILL.md 第 5 节。",
+                "出错源码文件截图，见 SKILL.md「复测启动与截图」。",
             ),
             (
                 "evidence_guard.py",

@@ -29,6 +29,19 @@ def safe_tag(name: str) -> str:
     return re.sub(r"[^0-9A-Za-z_.-]+", "_", name.strip())
 
 
+def model_screenshot_tag(name: str) -> str:
+    """Match compose.py tags: only spaces become underscores."""
+    return str(name).replace(" ", "_")
+
+
+def iter_model_names(model_map: dict) -> list[str]:
+    """Prefer sheet_columns, then models key order."""
+    cols = model_map.get("sheet_columns")
+    if cols:
+        return list(cols)
+    return list((model_map.get("models") or {}).keys())
+
+
 def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
@@ -64,8 +77,8 @@ def check_task(task_id: str) -> list[str]:
         return [f"{task_id}: missing delivery/{task_id}/screenshots"]
 
     model_map = load_json(map_path)
-    for model_name in model_map.get("sheet_columns", []):
-        tag = safe_tag(model_name)
+    for model_name in iter_model_names(model_map):
+        tag = model_screenshot_tag(model_name)
         frames = sorted(
             p for p in shot_dir.glob(f"{tag}_*.png")
             if re.match(rf"{re.escape(tag)}_\d+_.+\.png$", p.name)

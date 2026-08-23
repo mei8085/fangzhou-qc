@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Orchestrator for full-stack QC verify — period-agnostic.
 
-Triggered when the agent judges a task needs a real backend to verify (see
-SKILL.md 5f decision rules). Detection is entirely via file presence, not by
-期数: `qc_cells.json[sheet].verifiable == "是"` + a hand-authored
-`tasks/<TASK_ID>/verify_routes.json`. Any of 28 / 29 / later 期 can use this.
+Triggered only when SKILL.md「复测启动与截图」says the deliverable needs a real
+backend stack. Detection is entirely via file presence, not by 期数:
+`qc_cells.json[sheet].verifiable == "是"` plus a hand-authored
+`tasks/<TASK_ID>/verify_routes.json`. G1-new and older periods can all use this.
+Do not call this script for Vue-only or CLI tasks; those stay on the local
+machine (`screenshot_vue.js` / `compose_cli.py`).
 
 Steps:
 
@@ -12,7 +14,7 @@ Steps:
   2. rsyncs each extracted model to u03l
   3. brings up the docker stack (per-task project name)
   4. opens SSH tunnels for postgres + redis
-  5. for each of 4 models:
+  5. for each model in model_map.json:
        venv → env.local → migrate → uvicorn → vite dev → Playwright routes
   6. tears down local uvicorn/vite, then closes tunnels, then compose down
 

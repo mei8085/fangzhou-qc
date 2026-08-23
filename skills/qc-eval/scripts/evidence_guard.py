@@ -13,6 +13,9 @@ import re
 import sys
 from pathlib import Path
 
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from lib.prompt_cheat import is_prompt_cheat_task  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -67,6 +70,8 @@ STATIC_REVIEW_TOKENS = CODE_ONLY_TOKENS | {
     "walkthrough",
     "build_error",
     "blocker",
+    "prompt",
+    "cheat",
 }
 
 ENV_BLOCKER_TERMS = (
@@ -116,12 +121,25 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def model_screenshot_tag(name: str) -> str:
+    """Match compose.py tags: only spaces become underscores."""
+    return str(name).replace(" ", "_")
+
+
+def iter_model_names(model_map: dict) -> list[str]:
+    """Prefer sheet_columns, then models key order."""
+    cols = model_map.get("sheet_columns")
+    if cols:
+        return list(cols)
+    return list((model_map.get("models") or {}).keys())
+
+
 def filename_tokens(path: Path) -> set[str]:
     stem = path.stem.lower()
     parts = re.split(r"[^0-9a-z]+", stem)
     tokens = {p for p in parts if p}
     # Keep multi-word phrases that are meaningful for this guard.
-    for phrase in ("code_editor", "table_config", "frontend_highlight"):
+    for phrase in ("code_editor", "table_config", "frontend_highlight", "prompt_cheat"):
         if phrase in stem:
             tokens.add(phrase)
     return tokens
@@ -194,8 +212,30 @@ def check_task(task_id: str) -> list[str]:
     sheet = qc.get("sheet", {})
     verifiable = sheet.get("verifiable")
     reason = (sheet.get("verifiable_reason") or "").strip()
+    names = iter_model_names(model_map)
+    prompt_cheat = is_prompt_cheat_task(task_dir, qc)
     has_labeler_runtime_hint = bool(labeler_images(task_id))
     needs_u03l_check = mentions_service_stack(task_id)
+
+    if prompt_cheat:
+        if not delivery_dir.exists():
+            return [f"{task_id}: prompt-cheat but delivery/{task_id}/screenshots is missing"]
+        for model_name in names:
+            tag = model_screenshot_tag(model_name)
+            frames = sorted(delivery_dir.glob(f"{tag}_??_*.png"))
+            verify = delivery_dir / f"{tag}_verify.png"
+            if not frames:
+                errors.append(f"{task_id}/{model_name}: prompt-cheat but no prompt screenshots")
+                continue
+            if not verify.exists():
+                errors.append(f"{task_id}/{model_name}: missing {tag}_verify.png")
+            if not any("prompt_cheat" in filename_tokens(p) or "cheat" in filename_tokens(p) for p in frames):
+                shown = ", ".join(p.name for p in frames)
+                errors.append(
+                    f"{task_id}/{model_name}: prompt-cheat screenshots must be "
+                    f"<模型>_NN_prompt_cheat.png ({shown})"
+                )
+        return errors
 
     if verifiable == "否" and not reason:
         errors.append(f"{task_id}: verifiable=否 but 不可验证原因 is empty")
@@ -215,8 +255,8 @@ def check_task(task_id: str) -> list[str]:
         if not delivery_dir.exists():
             errors.append(f"{task_id}: verifiable=否 but delivery/{task_id}/screenshots is missing")
             return errors
-        for model_name in model_map.get("sheet_columns", []):
-            tag = safe_tag(model_name)
+        for model_name in names:
+            tag = model_screenshot_tag(model_name)
             frames = sorted(delivery_dir.glob(f"{tag}_??_*.png"))
             verify = delivery_dir / f"{tag}_verify.png"
             if not frames:
@@ -225,10 +265,10 @@ def check_task(task_id: str) -> list[str]:
             if not verify.exists():
                 errors.append(f"{task_id}/{model_name}: missing {tag}_verify.png")
             if not any(filename_tokens(p) & STATIC_REVIEW_TOKENS for p in frames):
-                names = ", ".join(p.name for p in frames)
+                shown = ", ".join(p.name for p in frames)
                 errors.append(
                     f"{task_id}/{model_name}: 不可验证截图 should be code/log/trace/static-review evidence "
-                    f"instead of a generic page capture ({names})"
+                    f"instead of a generic page capture ({shown})"
                 )
         return errors
 
@@ -238,8 +278,8 @@ def check_task(task_id: str) -> list[str]:
     if not delivery_dir.exists():
         return [f"{task_id}: verifiable=是 but delivery/{task_id}/screenshots is missing"]
 
-    for model_name in model_map.get("sheet_columns", []):
-        tag = safe_tag(model_name)
+    for model_name in names:
+        tag = model_screenshot_tag(model_name)
         frames = sorted(delivery_dir.glob(f"{tag}_??_*.png"))
         verify = delivery_dir / f"{tag}_verify.png"
         if not frames:
@@ -248,16 +288,16 @@ def check_task(task_id: str) -> list[str]:
         if not verify.exists():
             errors.append(f"{task_id}/{model_name}: missing {tag}_verify.png")
         if all(is_code_only(p) for p in frames):
-            names = ", ".join(p.name for p in frames)
+            shown = ", ".join(p.name for p in frames)
             hint = "; labeler screenshots exist, so rerun actual product unless a concrete blocker is documented" if has_labeler_runtime_hint else ""
             errors.append(
-                f"{task_id}/{model_name}: screenshots look code/static-only ({names}); "
+                f"{task_id}/{model_name}: screenshots look code/static-only ({shown}); "
                 f"use real page/CLI/API/error evidence or mark verifiable=否 with reason{hint}"
             )
         if not any(has_runtime_signal(p) for p in frames):
-            names = ", ".join(p.name for p in frames)
+            shown = ", ".join(p.name for p in frames)
             errors.append(
-                f"{task_id}/{model_name}: no runtime evidence filename found ({names}); "
+                f"{task_id}/{model_name}: no runtime evidence filename found ({shown}); "
                 "expected page/API/CLI/build/error/dialog/filter/etc."
             )
 

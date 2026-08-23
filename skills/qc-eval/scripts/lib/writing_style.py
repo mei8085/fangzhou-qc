@@ -2,7 +2,9 @@
 
 Style source of truth for agents is SKILL.md plus docs/描述语言参考.xlsx.
 This module only encodes the machine-checkable bits used by selfcheck and
-the delivery scripts.
+the delivery scripts. Colloquial replacements live in writing_style.json
+``preferred_replacements`` (说得通→合理, 对得上→相符/一致, 写重了→描述偏重,
+抬上去了→得益于).
 """
 
 from __future__ import annotations

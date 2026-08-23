@@ -74,6 +74,10 @@
     "title": "质检",
     "fill_file": "delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json",
     "fill_markdown": "delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md",
+    "fill_script": "skills/qc-eval/scripts/fill_g1_audit_form.js",
+    "fill_action": "保存草稿",
+    "save_api": "CaseBffV1CrowdtestTaskModelAuditSave",
+    "forbidden_actions": ["提交审核", "打回", "返回列表"],
     "fields": [
       {
         "key": "task_quality",
@@ -163,6 +167,8 @@
           "低质量任务": ["用户问题：低质量任务"],
           "用户问题：低质量任务": ["用户问题：低质量任务"],
           "用户问题:低质量任务": ["用户问题：低质量任务"],
+          "提示词轮次作弊": ["用户问题：低质量任务"],
+          "轮次作弊": ["用户问题：低质量任务"],
           "敷衍恶意打分": ["用户问题：敷衍恶意打分"],
           "完全敷衍": ["用户问题：敷衍恶意打分"],
           "虚假反馈": ["用户问题：敷衍恶意打分"],

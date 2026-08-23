@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Remote docker driver for the qc-eval fullstack verify pipeline.
 
+When to use this host is defined in SKILL.md「复测启动与截图」; Vue-only and CLI
+tasks must not call this driver.
+
 u03l is the Ubuntu workstation hosting a per-task docker compose stack:
   * postgres:15-alpine  — one instance, one DB per model
   * redis:7-alpine       — one instance, broker db 0..3 + result db 4..7
