@@ -20,6 +20,11 @@ import openpyxl
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
 sys.path.insert(0, str(HERE))
+from lib.annotator_tags import (  # noqa: E402
+    iter_model_evaluations,
+    qc_coverage_issues,
+    self_test as annotator_tag_self_test,
+)
 from lib.writing_style import (  # noqa: E402
     consecutive_opening_issues,
     dangling_opening_issues,
@@ -601,6 +606,44 @@ def feedback_rating_rationale_issues(
     return bad
 
 
+def annotator_tag_qc_issues(
+    ws,
+    headers: dict[str, int],
+    qc: dict | None,
+    task_id: str,
+    *,
+    prompt_cheat: bool,
+) -> dict[int, list[str]]:
+    """Fail when defect tags contradict remarks but QC did not cover that."""
+    if prompt_cheat or not task_id:
+        return {}
+    models = iter_model_evaluations(task_id)
+    if not models:
+        return {}
+    qc_models = ((qc or {}).get("sheet") or {}).get("models") or {}
+    combined = cell_text(ws, headers.get(_PLATFORM_AUDIT_HEADER))
+    bad: dict[int, list[str]] = {}
+    rating_cols = {model: rating_col for model, rating_col, _ in model_rating_note_cols(headers)}
+    note_cols = {model: note_col for model, _, note_col in model_rating_note_cols(headers)}
+    for row in models:
+        sheet = str(row.get("sheet") or "")
+        rating_col = rating_cols.get(sheet)
+        note_col = note_cols.get(sheet)
+        rating = cell_text(ws, rating_col) if rating_col else ""
+        note = cell_text(ws, note_col) if note_col else ""
+        data = qc_models.get(sheet) or {}
+        audit = str(
+            data.get("platform_audit_reason") or data.get("audit_reason") or ""
+        ).strip() or audit_line_for_model(combined, sheet)
+        issues = qc_coverage_issues(row, rating, note, audit)
+        if not issues:
+            continue
+        target = note_col or rating_col
+        if target:
+            bad.setdefault(target, []).extend(issues)
+    return bad
+
+
 def load_qc_cells(task_id: str) -> dict | None:
     """Return tasks/<TASK_ID>/qc_cells.json when the file exists."""
     if not task_id:
@@ -695,12 +738,18 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
         ws, headers, qc, prompt_cheat=prompt_cheat
     ).items():
         bad.setdefault(col, []).extend(issues)
+    for col, issues in annotator_tag_qc_issues(
+        ws, headers, qc, task_id, prompt_cheat=prompt_cheat
+    ).items():
+        bad.setdefault(col, []).extend(issues)
     return bad, period
 
 
 def writing_template_issues() -> list[str]:
     """Canned examples in writing_style.json and cheat notes must pass rationale rules."""
     issues = opening_family_example_issues()
+    for item in annotator_tag_self_test():
+        issues.append(f"annotator-tag-detector:{item}")
     _, specs = build_notes("工具轮次达到 450")
     for idx, (note, audit) in enumerate(specs):
         for item in scan_feedback_rating_rationale(
