@@ -3,6 +3,9 @@
 This guard complements blank_guard.py. blank_guard only catches empty or
 duplicate frames; this file catches a different failure mode: marking a task
 as verifiable while every attached image is only code/static inspection.
+
+It also requires a `<模型>_NN_test.png` when a quality note claims a test
+failure that the labeler did not record, or that disagrees with the labeler.
 """
 
 from __future__ import annotations
@@ -300,6 +303,19 @@ def check_task(task_id: str) -> list[str]:
                 f"{task_id}/{model_name}: no runtime evidence filename found ({shown}); "
                 "expected page/API/CLI/build/error/dialog/filter/etc."
             )
+        note = str((sheet.get("models") or {}).get(model_name, {}).get("note") or "")
+        mismatch = bool(re.search(r"未记录|与实际情况不符|与实际不符", note))
+        test_claim = bool(re.search(r"测试失败|集成测试", note))
+        if mismatch and test_claim:
+            tokens = set()
+            for p in frames:
+                tokens |= filename_tokens(p)
+            if "test" not in tokens:
+                shown = ", ".join(p.name for p in frames)
+                errors.append(
+                    f"{task_id}/{model_name}: 备注写了与标注不一致的测试失败，"
+                    f"但没有测试截图（需要 <模型>_NN_test.png；现有 {shown}）"
+                )
 
     return errors
 

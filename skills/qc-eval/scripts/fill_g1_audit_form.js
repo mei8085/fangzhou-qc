@@ -306,6 +306,9 @@ async function clickRadio(root, ariaLabel, option) {
   await group.waitFor({ state: 'visible', timeout: 15000 });
   const radio = group.getByRole('radio', { name: option, exact: true });
   await radio.scrollIntoViewIfNeeded();
+  if ((await radio.getAttribute('aria-checked')) === 'true') {
+    return;
+  }
   await radio.click();
   const checked = await radio.getAttribute('aria-checked');
   if (checked !== 'true') {
@@ -330,17 +333,26 @@ async function fillLabeledTextarea(root, label, value) {
   const textarea = noteTextarea(root, label);
   await textarea.waitFor({ state: 'visible', timeout: 15000 });
   await textarea.scrollIntoViewIfNeeded();
+  const want = value || '';
+  const disabled = await textarea.isDisabled();
+  const current = await textarea.inputValue();
+  if (current === want) {
+    return;
+  }
+  if (disabled) {
+    throw new Error(`${label} is disabled and does not match the fill value`);
+  }
   await textarea.click();
-  await textarea.fill(value || '');
+  await textarea.fill(want);
   const got = await textarea.inputValue();
-  if (got !== (value || '')) {
+  if (got !== want) {
     await textarea.evaluate((el, v) => {
       const proto = window.HTMLTextAreaElement.prototype;
       const desc = Object.getOwnPropertyDescriptor(proto, 'value');
       desc.set.call(el, v);
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
-    }, value || '');
+    }, want);
   }
 }
 

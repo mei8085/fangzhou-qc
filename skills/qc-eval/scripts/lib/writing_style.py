@@ -3,9 +3,9 @@
 Style source of truth for agents is SKILL.md plus docs/描述语言参考.xlsx.
 This module only encodes the machine-checkable bits used by selfcheck and
 the delivery scripts. Colloquial replacements live in writing_style.json
-``preferred_replacements`` (说得通→合理, 对得上→相符/一致, 写重了→描述偏重,
-抬上去了→得益于). Feedback-quality notes must also name the rating
-(高质量 / 合格 / 不合格) and the concrete reason for that band.
+``preferred_replacements`` (说得通→合理, 对得上→相符/一致, 写重了/偏重/说得过头→与实际情况不符,
+仍在→与实际情况相符, 可核/也可核/能核→和实际验证结果相符, 抬上去了→得益于, 缺口→问题/缺陷/缺失). Feishu notes name 高质量 / 合格 /
+不合格; platform audit reasons name 完全可用 / 部分可用 / 完全不可用.
 """
 
 from __future__ import annotations
@@ -13,13 +13,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections import Counter
 from pathlib import Path
 
 from .paths import SKILL_DIR
 
 CONFIG_PATH = SKILL_DIR / "config" / "writing_style.json"
 SCORE_IN_NOTE = re.compile(r"\d+\s*分")
+# Curly quotes around a paraphrase look like a verbatim annotator quote.
+SCARE_QUOTES = re.compile(r"[“”]")
 MODEL_AUDIT_PREFIX = re.compile(
     r"^(?:【G1】S\d+(?:（[^）]+）)?|[A-Za-z0-9_-]+)[：:]\s*"
 )
@@ -38,11 +39,12 @@ def load_writing_style() -> dict:
         "page_hidden_phrases": [],
         "page_hidden_regex": [],
         "score_prefix": "标注人给执行过程",
-        "min_distinct_note_openings": 3,
+        "min_distinct_note_openings": 1,
         "note_opening_chars": 8,
         "audit_ending_chars": 10,
         "min_same_audit_ending": 4,
         "task_opening_chars": 10,
+        "consecutive_task_opening_window": 3,
         "audit_clean_tails": ["", "未见脏数据。"],
         "audit_templates": {},
     }
@@ -73,7 +75,15 @@ def _compiled_banned_regex(cfg: dict | None = None) -> list[re.Pattern[str]]:
 
 
 def scan_banned_style(text: str, cfg: dict | None = None) -> list[str]:
-    """Return style issue tokens for banned QC jargon in ``text``."""
+    """Return style issue tokens for banned QC jargon in ``text``.
+
+    Includes ``缺口`` from ``writing_style.json``: write 问题 / 缺陷 / 缺失
+    instead of treating missing UI or incomplete coverage as a 缺口.
+    Also flags a dangling ``，与备注相符`` / ``，与反馈相符`` (no subject);
+    write ``实际情况与备注相符`` or name the score that matches.
+    Also flags ``仍在`` and ``说得过头``; write 与实际情况相符 / 与实际情况不符.
+    Also flags ``可核`` / ``也可核`` / ``能核``; write 和实际验证结果相符.
+    """
     cfg = cfg or load_writing_style()
     issues: list[str] = []
     seen: set[str] = set()
@@ -88,7 +98,43 @@ def scan_banned_style(text: str, cfg: dict | None = None) -> list[str]:
                 seen.add(token)
                 issues.append(f"style:{token}")
     issues.extend(scan_page_hidden(text, cfg))
+    issues.extend(scare_quote_issues(text))
     return issues
+
+
+def scare_quote_issues(text: str) -> list[str]:
+    """Flag curly quotes. Paraphrases must not look like verbatim quotes."""
+    if SCARE_QUOTES.search(str(text or "")):
+        return ["style:non-verbatim-quotes"]
+    return []
+
+
+_CAMEL_TOKEN = re.compile(r"[a-z]+[A-Z][A-Za-z0-9]*")
+_OPENING_EVAL = re.compile(
+    r"相符|不符|偏高|偏低|失败|打破|缺陷|缺失|问题|不完整|能开|起不来|报错|卡住|标注"
+)
+
+
+def dangling_opening_issues(text: str) -> list[str]:
+    """Flag a first sentence that drops a CLI/field fact without judging it.
+
+    Openings like ``graph --json 带 generatedAt。`` name a phenomenon but never
+    say whether it is a defect or whether it matches the annotator.
+    """
+    blob = str(text or "").strip()
+    if not blob:
+        return []
+    first = re.split(r"[。！？]", blob, maxsplit=1)[0]
+    if not first:
+        return []
+    looks_like_field = bool(
+        _CAMEL_TOKEN.search(first)
+        or " --" in first
+        or first.startswith("--")
+    )
+    if looks_like_field and not _OPENING_EVAL.search(first):
+        return ["dangling-opening-fact"]
+    return []
 
 
 def scan_page_hidden(text: str, cfg: dict | None = None) -> list[str]:
@@ -123,48 +169,68 @@ def strip_audit_model_prefix(line: str) -> str:
 
 
 def repeated_opening_issues(texts: list[str], cfg: dict | None = None) -> list[str]:
-    """Flag model notes that share the same opening clause."""
-    cfg = cfg or load_writing_style()
-    n_chars = int(cfg.get("note_opening_chars") or 8)
-    min_distinct = int(cfg.get("min_distinct_note_openings") or 3)
-    prefixes = [opening_prefix(t, n_chars) for t in texts if str(t or "").strip()]
-    if len(prefixes) < min_distinct:
-        return []
-    distinct = {p for p in prefixes if p}
-    if len(distinct) < min(min_distinct, len(prefixes)):
-        top = Counter(prefixes).most_common(1)[0]
-        return [f"style-same-opening:{top[0]}x{top[1]}"]
+    """Same-task model notes may share an opening. Kept as a no-op for callers."""
     return []
 
 
 def majority_score_prefix_issues(texts: list[str], cfg: dict | None = None) -> list[str]:
-    """Flag when most model notes start with the frozen score-prefix template."""
+    """Same-task notes may share the score-prefix opening. Variety is cross-task."""
+    return []
+
+
+def majority_annotator_opening_issues(texts: list[str], cfg: dict | None = None) -> list[str]:
+    """Same-task notes may all open with 标注. Variety is cross-task."""
+    return []
+
+
+def consecutive_opening_issues(
+    current_texts: list[str],
+    recent: list[tuple[str, list[str]]],
+    cfg: dict | None = None,
+    *,
+    kind: str = "note",
+) -> list[str]:
+    """Flag when this task reuses an opening from a recent consecutive task.
+
+    ``recent`` is newest-first ``(task_id, texts)``. Same-task duplicates are allowed.
+    """
     cfg = cfg or load_writing_style()
-    prefix = str(cfg.get("score_prefix") or "标注人给执行过程")
-    notes = [str(t or "").strip() for t in texts if str(t or "").strip()]
-    if len(notes) < 3:
+    if kind == "task":
+        n_chars = int(
+            cfg.get("task_opening_chars")
+            or cfg.get("task_opening_chars")
+            or 10
+        )
+    else:
+        n_chars = int(
+            cfg.get("note_opening_chars")
+            or cfg.get("note_opening_chars")
+            or 8
+        )
+    current = {
+        opening_prefix(text, n_chars)
+        for text in current_texts
+        if str(text or "").strip()
+    }
+    current.discard("")
+    if not current:
         return []
-    hits = sum(1 for note in notes if note.startswith(prefix))
-    if hits >= 3:
-        return [f"style-same-score-prefix:{hits}"]
+    for prev_id, prev_texts in recent:
+        previous = {
+            opening_prefix(text, n_chars)
+            for text in prev_texts
+            if str(text or "").strip()
+        }
+        overlap = current & previous
+        overlap.discard("")
+        if overlap:
+            sample = sorted(overlap, key=len, reverse=True)[0]
+            return [f"style-same-{kind}-opening-as-recent:{prev_id}:{sample}"]
     return []
 
 
 def repeated_audit_ending_issues(text: str, cfg: dict | None = None) -> list[str]:
-    """Flag when most per-model audit lines share the same closing clause."""
-    cfg = cfg or load_writing_style()
-    n_chars = int(cfg.get("audit_ending_chars") or 10)
-    min_same = int(cfg.get("min_same_audit_ending") or 4)
-    lines = [strip_audit_model_prefix(line) for line in str(text or "").splitlines()]
-    lines = [line for line in lines if line]
-    if len(lines) < min_same:
-        return []
-    endings = [line[-n_chars:] for line in lines if len(line) >= n_chars]
-    if not endings:
-        return []
-    top, count = Counter(endings).most_common(1)[0]
-    if count >= min_same:
-        return [f"style-same-audit-ending:{top}x{count}"]
+    """Same-task audit lines may share a grade close. Variety is cross-task."""
     return []
 
 
@@ -242,11 +308,49 @@ def default_audit_reason(
 
 
 _RATING_VALUES = ("高质量", "合格", "不合格")
-_ALIGN_RE = re.compile(r"相符|一致|打分准确")
+_PLATFORM_RATING = {
+    "高质量": "完全可用",
+    "合格": "部分可用",
+    "不合格": "完全不可用",
+}
+_PLATFORM_WORDS = ("完全不可用", "部分可用", "完全可用")
+_AUDIT_SHEET_PHRASES = (
+    "故高质量",
+    "故合格",
+    "故不合格",
+    "反馈质量为高质量",
+    "反馈质量为合格",
+    "反馈质量为不合格",
+)
+_TEMPLATE_NOTES = {
+    "高质量": "标注人给执行过程 8 分、执行产物 8 分，和产物实测情况一致，评分正确，反馈质量为高质量。",
+    "合格": "主页面能开和标注一致。过程 8 分相符，产物 9 分偏高，反馈质量为合格。",
+    "不合格": "标注评语空泛且串图，属敷衍恶意打分，结论不可信。反馈质量为不合格。",
+}
+_ALIGN_RE = re.compile(r"相符|一致|打分准确|评分正确")
 _QUALIFIED_GAP_RE = re.compile(
     r"偏高|偏低|不完善|不完整|缺(?:截图|步骤|证据|图)|"
-    r"无法.{0,12}复核|不符|偏重|偏少|未覆盖|未测|理由偏短|佐证不足"
+    r"无法.{0,12}复核|不符|偏少|未覆盖|未测|理由偏短|佐证不足"
 )
+_PROCESS_SCORE_RE = re.compile(r"过程\s*\d+\s*分")
+_ARTIFACT_SCORE_RE = re.compile(r"产物\s*\d+\s*分")
+_PROCESS_SCORE_VERDICT_RE = re.compile(
+    r"过程\s*\d+\s*分.{0,24}(?:偏高|偏低|相符|合理)"
+)
+_ARTIFACT_SCORE_VERDICT_RE = re.compile(
+    r"产物\s*\d+\s*分.{0,24}(?:偏高|偏低|相符|合理)"
+)
+
+
+def _score_clarity_issues(note: str) -> list[str]:
+    """合格备注列出过程分或产物分时，必须写清偏高、偏低或相符。"""
+    issues: list[str] = []
+    if _PROCESS_SCORE_RE.search(note) and not _PROCESS_SCORE_VERDICT_RE.search(note):
+        issues.append("note-qualified-process-score-need-high-low-or-match")
+    if _ARTIFACT_SCORE_RE.search(note) and not _ARTIFACT_SCORE_VERDICT_RE.search(note):
+        issues.append("note-qualified-artifact-score-need-high-low-or-match")
+    return issues
+
 _UNQUALIFIED_RE = re.compile(
     r"红线|敷衍|脏数据|不可信|串图|空评|轮次作弊|作弊|恶意打分|完全不可"
 )
@@ -256,6 +360,7 @@ _DEFAULT_VAGUE = (
     "大体合理",
     "方向正确",
     "整体可核",
+    "可核",
     "判断成立",
 )
 
@@ -274,6 +379,41 @@ def _has_ambiguous_report_subject(text: str) -> bool:
     return bool(re.search(r"报告(?:却)?声称|报告称|报告所[述写]|报告[里中]写", text))
 
 
+def _contains_sheet_word(text: str, rating: str) -> bool:
+    """Return True if the Feishu rating word appears in ``text``."""
+    if rating == "合格":
+        return "合格" in text.replace("不合格", "")
+    return rating in text
+
+
+def _sheet_words_in_text(text: str) -> list[str]:
+    """Return Feishu rating words found in ``text`` (不合格 before 合格)."""
+    found: list[str] = []
+    if "高质量" in text:
+        found.append("高质量")
+    if "不合格" in text:
+        found.append("不合格")
+    elif "合格" in text:
+        found.append("合格")
+    return found
+
+
+def _platform_words_in_text(text: str) -> list[str]:
+    """Return platform option words found in ``text``, longest first."""
+    return [word for word in _PLATFORM_WORDS if word in text]
+
+
+def _shared_rationale_issues(label: str, text: str, vague: tuple[str, ...]) -> list[str]:
+    """Return vague-phrase and ambiguous-subject issues for one field."""
+    issues: list[str] = []
+    for phrase in vague:
+        if phrase and phrase in text:
+            issues.append(f"{label}-vague-rating-phrase:{phrase}")
+    if _has_ambiguous_report_subject(text):
+        issues.append(f"{label}-ambiguous-report-subject")
+    return issues
+
+
 def scan_feedback_rating_rationale(
     note: str,
     audit: str,
@@ -282,10 +422,11 @@ def scan_feedback_rating_rationale(
     prompt_cheat: bool = False,
     cfg: dict | None = None,
 ) -> list[str]:
-    """Flag notes/audits that do not explain the feedback-quality band.
+    """Flag notes/audits that mix Feishu and platform rating words.
 
-    Reviewers must see why the annotator's work is 高质量 / 合格 / 不合格.
-    Describing the model product alone is not enough.
+    ``note`` (飞书质量备注) must name 高质量 / 合格 / 不合格.
+    ``audit`` (平台审核理由) must name 完全可用 / 部分可用 / 完全不可用
+    and must not use the Feishu words or 故高质量 / 反馈质量为合格.
     """
     rating = str(rating or "").strip()
     note = str(note or "").strip()
@@ -295,27 +436,37 @@ def scan_feedback_rating_rationale(
 
     issues: list[str] = []
     block = _cfg_rating_rationale(cfg)
-    vague = tuple(
-        block.get("vague_phrases") or block.get("vague_phrases") or _DEFAULT_VAGUE
-    )
+    vague = tuple(block.get("vague_phrases") or _DEFAULT_VAGUE)
+    platform_word = _PLATFORM_RATING[rating]
 
-    for label, text in (("note", note), ("audit", audit)):
-        if not text:
-            if label == "audit":
-                issues.append("audit-missing-rating-rationale")
-            continue
-        if rating == "合格":
-            if "不合格" in text and "合格" not in text.replace("不合格", ""):
-                issues.append(f"{label}-rating-word-is-不合格-not-合格")
-            elif "合格" not in text.replace("不合格", ""):
-                issues.append(f"{label}-missing-rating-word:合格")
-        elif rating not in text:
-            issues.append(f"{label}-missing-rating-word:{rating}")
-        for phrase in vague:
-            if phrase and phrase in text:
-                issues.append(f"{label}-vague-rating-phrase:{phrase}")
-        if _has_ambiguous_report_subject(text):
-            issues.append(f"{label}-ambiguous-report-subject")
+    if note:
+        if rating == "合格" and "不合格" in note and not _contains_sheet_word(note, rating):
+            issues.append("note-rating-word-is-不合格-not-合格")
+        elif not _contains_sheet_word(note, rating):
+            issues.append(f"note-missing-rating-word:{rating}")
+        if (
+            "标注" not in note
+            and not prompt_cheat
+            and "轮次作弊" not in note
+        ):
+            issues.append("note-missing-annotator-subject")
+        for word in _platform_words_in_text(note):
+            issues.append(f"note-used-platform-word:{word}")
+        issues.extend(_shared_rationale_issues("note", note, vague))
+        issues.extend(scare_quote_issues(note))
+
+    if not audit:
+        issues.append("audit-missing-rating-rationale")
+    else:
+        if platform_word not in audit:
+            issues.append(f"audit-missing-rating-word:{platform_word}")
+        for word in _sheet_words_in_text(audit):
+            issues.append(f"audit-used-sheet-word:{word}")
+        for phrase in _AUDIT_SHEET_PHRASES:
+            if phrase in audit:
+                issues.append(f"audit-used-sheet-phrase:{phrase}")
+        issues.extend(_shared_rationale_issues("audit", audit, vague))
+        issues.extend(scare_quote_issues(audit))
 
     if rating == "高质量":
         if note and not _ALIGN_RE.search(note):
@@ -327,6 +478,7 @@ def scan_feedback_rating_rationale(
             issues.append("note-qualified-missing-gap")
         if audit and not _QUALIFIED_GAP_RE.search(audit):
             issues.append("audit-qualified-missing-gap")
+        issues.extend(_score_clarity_issues(note))
     elif rating == "不合格":
         blob = note + audit
         if blob and not _UNQUALIFIED_RE.search(blob):
@@ -335,12 +487,15 @@ def scan_feedback_rating_rationale(
 
 
 def opening_family_example_issues(cfg: dict | None = None) -> list[str]:
-    """Every canned example must itself satisfy the rating-rationale rules."""
+    """Every canned note/audit example must itself satisfy the split vocabulary."""
     cfg = cfg or load_writing_style()
     issues: list[str] = []
-    for fam in cfg.get("opening_families") or []:
+    for fam in cfg.get("opening_families") or cfg.get("opening_families") or []:
         fid = str(fam.get("id") or "unknown")
-        example = str(fam.get("example") or "").strip()
+        example = str(fam.get("example") or fam.get("example") or "").strip()
+        audit_example = str(
+            fam.get("audit_example") or fam.get("audit_example") or ""
+        ).strip()
         rating = str(fam.get("rating") or "").strip()
         if rating not in _RATING_VALUES:
             issues.append(f"template-{fid}-missing-rating-field")
@@ -348,19 +503,29 @@ def opening_family_example_issues(cfg: dict | None = None) -> list[str]:
         if not example:
             issues.append(f"template-{fid}-empty-example")
             continue
-        for item in scan_feedback_rating_rationale(example, example, rating, cfg=cfg):
+        if not audit_example:
+            issues.append(f"template-{fid}-empty-audit-example")
+            continue
+        for item in scan_feedback_rating_rationale(
+            example, audit_example, rating, cfg=cfg
+        ):
+            issues.append(f"template-{fid}:{item}")
+        for item in dangling_opening_issues(example):
             issues.append(f"template-{fid}:{item}")
     for kind, rating in (
         ("fully_usable", "高质量"),
         ("partly_usable", "合格"),
         ("unusable", "不合格"),
     ):
+        dummy_note = _TEMPLATE_NOTES[rating]
         for idx, template in enumerate((cfg.get("audit_templates") or {}).get(kind) or []):
             text = (
                 str(template)
                 .replace("{summary}", "核心页面能开")
                 .replace("{tail}", "")
             )
-            for item in scan_feedback_rating_rationale(text, text, rating, cfg=cfg):
+            for item in scan_feedback_rating_rationale(
+                dummy_note, text, rating, cfg=cfg
+            ):
                 issues.append(f"audit-template-{kind}-{idx}:{item}")
     return issues

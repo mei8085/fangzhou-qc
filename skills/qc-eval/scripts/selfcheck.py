@@ -21,10 +21,11 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
 sys.path.insert(0, str(HERE))
 from lib.writing_style import (  # noqa: E402
-    majority_score_prefix_issues,
+    consecutive_opening_issues,
+    dangling_opening_issues,
+    load_writing_style,
     opening_family_example_issues,
     repeated_audit_ending_issues,
-    repeated_opening_issues,
     scan_banned_style,
     scan_feedback_rating_rationale,
 )
@@ -155,7 +156,9 @@ UNNATURAL_STYLE_WORDS = [
     "评分方向合理", "完全吻合", "方向基本准确",
     "说得通", "对得上", "对不上", "能对上", "全对上",
     "写重了", "抬上去", "抬在", "没有抬", "过重",
-    "同向", "偏松", "偏严",
+    "同向", "偏松", "偏严", "缺口", "偏重", "未写反", "说得过头", "仍在",
+    "可核", "也可核", "能核",
+    "，与备注相符", "。与备注相符", "，与反馈相符", "。与反馈相符",
 ]
 UNNATURAL_STYLE_RE = re.compile(
     r"(?:很|挺|蛮|够|更|比较|较|不太|不够)准(?!确)|"
@@ -232,10 +235,14 @@ def scan_cell(
     if TRAILING_VERDICT.search(s):
         issues.append("trailing-verdict")
     if col in model_note_cols and not skip_annotator_checks:
-        if not ANNOTATOR_REF.search(s):
+        if period == "G1-new":
+            if "标注" not in s and "轮次作弊" not in s:
+                issues.append("not-evaluating-annotator")
+        elif not ANNOTATOR_REF.search(s):
             issues.append("not-evaluating-annotator")
         if period == "G1-new" and not SCORE_IN_NOTE.search(s):
             issues.append("model-note-missing-score")
+        issues.extend(dangling_opening_issues(s))
     return issues
 
 
@@ -259,33 +266,65 @@ def check_platform_qc_md(md_path: Path) -> list[str]:
     return issues
 
 
-def previous_task_opening_issues(task_id: str, current_text: str) -> list[str]:
-    """Flag a 题目质量说明 that reuses the previous delivery's opening."""
-    current = str(current_text or "").strip()[:10]
-    if len(current) < 8:
-        return []
-    delivery = REPO_ROOT / "delivery"
-    if not delivery.exists():
-        return []
-    others: list[tuple[float, Path]] = []
-    for folder in delivery.iterdir():
-        if not folder.is_dir() or folder.name == task_id:
-            continue
-        xlsx = folder / f"{folder.name}.xlsx"
-        if xlsx.exists():
-            others.append((xlsx.stat().st_mtime, xlsx))
-    if not others:
-        return []
-    others.sort(key=lambda item: item[0], reverse=True)
-    prev_xlsx = others[0][1]
-    wb = openpyxl.load_workbook(prev_xlsx, data_only=True)
+def _notes_from_xlsx(xlsx: Path) -> tuple[str, list[str]]:
+    """Return (题目质量说明, 各模型质量备注) from a delivery workbook."""
+    wb = openpyxl.load_workbook(xlsx, data_only=True)
     ws = wb.active
     headers = find_headers(ws)
-    prev_col = headers.get(_PROMPT_QUALITY_NOTE_HEADER)
-    prev_text = str(ws.cell(2, prev_col).value or "").strip()[:10] if prev_col else ""
-    if prev_text and prev_text == current:
-        return [f"style-same-task-opening-as-previous:{prev_xlsx.parent.name}"]
-    return []
+    _, model_note_cols = reviewer_columns(headers)
+    task_col = headers.get(_PROMPT_QUALITY_NOTE_HEADER)
+    task_note = cell_text(ws, task_col)
+    model_notes = [cell_text(ws, col) for col in sorted(model_note_cols)]
+    return task_note, model_notes
+
+
+def _notes_from_qc_cells(path: Path) -> tuple[str, list[str]]:
+    """Return (题目质量说明, 各模型质量备注) from qc_cells.json."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    sheet = data.get("sheet") or data
+    task_note = str(sheet.get("prompt_quality_note") or "")
+    models = sheet.get("models") or {}
+    model_notes: list[str] = []
+    if isinstance(models, dict):
+        for item in models.values():
+            if isinstance(item, dict):
+                model_notes.append(str(item.get("note") or ""))
+    return task_note, model_notes
+
+
+def load_recent_task_notes(
+    task_id: str, window: int
+) -> list[tuple[str, str, list[str]]]:
+    """Return newest-first ``(task_id, task_note, model_notes)`` for recent tasks."""
+    found: dict[str, tuple[float, str, list[str]]] = {}
+    delivery = REPO_ROOT / "delivery"
+    if delivery.is_dir():
+        for folder in delivery.iterdir():
+            if not folder.is_dir() or folder.name == task_id:
+                continue
+            xlsx = folder / f"{folder.name}.xlsx"
+            if not xlsx.exists():
+                continue
+            try:
+                task_note, model_notes = _notes_from_xlsx(xlsx)
+            except Exception:
+                continue
+            found[folder.name] = (xlsx.stat().st_mtime, task_note, model_notes)
+    tasks = REPO_ROOT / "tasks"
+    if tasks.is_dir():
+        for folder in tasks.iterdir():
+            if not folder.is_dir() or folder.name == task_id or folder.name in found:
+                continue
+            qc_path = folder / "qc_cells.json"
+            if not qc_path.exists():
+                continue
+            try:
+                task_note, model_notes = _notes_from_qc_cells(qc_path)
+            except Exception:
+                continue
+            found[folder.name] = (qc_path.stat().st_mtime, task_note, model_notes)
+    ranked = sorted(found.items(), key=lambda item: item[1][0], reverse=True)
+    return [(tid, payload[1], payload[2]) for tid, payload in ranked[:window]]
 
 
 def split_redline_options(s: str) -> list[str]:
@@ -532,7 +571,7 @@ def feedback_rating_rationale_issues(
     *,
     prompt_cheat: bool,
 ) -> dict[int, list[str]]:
-    """Require each model note/audit to explain 高质量 / 合格 / 不合格."""
+    """Require Feishu notes to name 高质量/合格/不合格; audits to name 完全可用/部分可用/完全不可用."""
     combined = cell_text(ws, headers.get(_PLATFORM_AUDIT_HEADER))
     qc_models = ((qc or {}).get("sheet") or {}).get("models") or {}
     bad: dict[int, list[str]] = {}
@@ -603,11 +642,6 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
             bad[c] = issues
     model_notes = [cell_text(ws, c) for c in sorted(model_note_cols)]
     variety_anchor = min(model_note_cols) if model_note_cols else None
-    if variety_anchor and not prompt_cheat:
-        for issue in repeated_opening_issues(model_notes):
-            bad.setdefault(variety_anchor, []).append(issue)
-        for issue in majority_score_prefix_issues(model_notes):
-            bad.setdefault(variety_anchor, []).append(issue)
     platform_audit_col = headers.get(_PLATFORM_AUDIT_HEADER)
     platform_audit_text = cell_text(ws, platform_audit_col)
     if platform_audit_col and platform_audit_text:
@@ -618,9 +652,31 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
                 bad.setdefault(platform_audit_col, []).append(issue)
         if "任务质量高" in platform_audit_text:
             bad.setdefault(platform_audit_col, []).append("platform-audit-no-任务质量高")
-    if task_id and task_note_col:
-        for issue in previous_task_opening_issues(task_id, cell_text(ws, task_note_col)):
-            bad.setdefault(task_note_col, []).append(issue)
+    if task_id and not prompt_cheat:
+        cfg = load_writing_style()
+        window = int(
+            cfg.get("consecutive_task_opening_window")
+            or cfg.get("consecutive_task_opening_window")
+            or 3
+        )
+        recent = load_recent_task_notes(task_id, window)
+        if variety_anchor and model_notes:
+            for issue in consecutive_opening_issues(
+                model_notes,
+                [(prev_id, notes) for prev_id, _, notes in recent],
+                cfg,
+                kind="note",
+            ):
+                bad.setdefault(variety_anchor, []).append(issue)
+        if task_note_col:
+            task_note = cell_text(ws, task_note_col)
+            for issue in consecutive_opening_issues(
+                [task_note],
+                [(prev_id, [note]) for prev_id, note, _ in recent],
+                cfg,
+                kind="task",
+            ):
+                bad.setdefault(task_note_col, []).append(issue)
     redline_col = redline_header_col(headers)
     redline_issues = redline_consistency_issues(ws, headers)
     if redline_col and redline_issues:

@@ -39,7 +39,9 @@ CJK_FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/arphic/uming.ttc",
 ]
 
-# Mixed CLI evidence often contains Chinese; prefer CJK-capable faces first.
+# Mixed CJK prose (static walkthrough notes) may use CJK faces.
+# CLI / test / terminal evidence MUST use MONO_FONT_CANDIDATES. Proportional
+# CJK faces (Hiragino, PingFang) make digit 4 lose its crossbar.
 FONT_CANDIDATES = [*CJK_FONT_CANDIDATES, *MONO_FONT_CANDIDATES]
 
 

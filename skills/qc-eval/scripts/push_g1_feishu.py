@@ -153,6 +153,11 @@ def main() -> int:
         default="",
         help="只上传这些表头（逗号分隔），跳过截图和其他文字列",
     )
+    parser.add_argument(
+        "--only-image-model",
+        default="",
+        help="只上传该模型的验证截图，文字列和其他模型截图都不写",
+    )
     args = parser.parse_args()
 
     if args.sheet_id != DEFAULT_SHEET_ID:
@@ -211,7 +216,14 @@ def main() -> int:
         print("错误：远端任务ID对应的任务名与本地不一致，拒绝上传", file=sys.stderr)
         return 2
 
-    if verify_screenshots(args.task_id, args.only_changed_text or bool(args.only_headers)) != 0:
+    only_image_model = str(args.only_image_model or "").strip()
+    if args.only_headers and only_image_model:
+        print("错误：--only-headers 和 --only-image-model 不能同时使用", file=sys.stderr)
+        return 2
+    if verify_screenshots(
+        args.task_id,
+        args.only_changed_text or (bool(args.only_headers) and not only_image_model),
+    ) != 0:
         return 1
 
     text_headers, image_map = build_push_targets(local_headers)
@@ -223,6 +235,24 @@ def main() -> int:
             return 2
         text_headers = [h for h in only_headers if h in text_headers]
         image_map = {}
+    if only_image_model:
+        text_headers = []
+        matched = {
+            header: model
+            for header, model in image_map.items()
+            if model == only_image_model
+            or only_image_model in model
+            or model.endswith(only_image_model)
+        }
+        if not matched:
+            print(
+                f"错误：--only-image-model 找不到模型 {only_image_model!r}。"
+                f"可选: {', '.join(sorted(set(image_map.values())))}",
+                file=sys.stderr,
+            )
+            return 2
+        image_map = matched
+        print(f"    只上传截图: {', '.join(image_map.values())}")
     text_count = 0
     for header in text_headers:
         if header in READ_ONLY_HEADERS:
@@ -259,7 +289,7 @@ def main() -> int:
         text_count += 1
 
     image_count = 0
-    if not args.only_changed_text and not only_headers:
+    if only_image_model or (not args.only_changed_text and not only_headers):
         img_dir = REPO_ROOT / "delivery" / args.task_id / "screenshots"
         for header, model in image_map.items():
             rcol = remote_headers.get(header)

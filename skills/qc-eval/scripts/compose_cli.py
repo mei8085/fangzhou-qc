@@ -15,6 +15,15 @@ do not add labels, captions, borders, or reviewer-authored explanation text.
 When extra numbered screenshots already exist for the same model, they are
 included in the verify composite.
 
+Terminal panels use ``MONO_FONT_CANDIDATES`` (Menlo / Consolas / DejaVu Sans Mono)
+via ``render_text_png``. Do not render CLI/test output with CJK proportional
+faces such as Hiragino or PingFang; digit 4 becomes unreadable.
+
+If a quality note claims a mismatch the CLI panel does not show (test failure,
+unrecorded product issue), do not rerun this script for the whole task: it
+overwrites every model's `_01_cli.png`. Render an extra numbered PNG with
+`render_extra_command_png`, then run `compose.py`.
+
 Usage:
     compose_cli.py <TASK_ID> [--report-file reports/rollout-risk.md]
 """
@@ -33,12 +42,19 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from lib.fonts import CJK_FONT_CANDIDATES, FONT_CANDIDATES, load_font  # noqa: E402
+from lib.fonts import (  # noqa: E402
+    CJK_FONT_CANDIDATES,
+    FONT_CANDIDATES,
+    MONO_FONT_CANDIDATES,
+    load_font,
+)
 from PIL import Image, ImageDraw, ImageChops
 
 REPO_ROOT = HERE.parent.parent.parent
 
-_FONT_CANDIDATES = FONT_CANDIDATES
+# CLI evidence is ASCII-heavy. CJK proportional faces (PingFang etc.) make
+# digits such as 4 lose the crossbar; use Menlo/Consolas for terminal panels.
+_FONT_CANDIDATES = MONO_FONT_CANDIDATES
 _LABEL_FONT_CANDIDATES = CJK_FONT_CANDIDATES
 
 
@@ -93,9 +109,11 @@ def clean_terminal_text(text: str) -> str:
     # so evidence remains readable instead of showing tofu boxes.
     text = text.translate(str.maketrans({
         "■": "=", "□": "-", "█": "=", "▇": "=",
-        "✓": "OK", "✔": "OK", "√": "OK", "✗": "FAIL",
-        "▶": ">", "ℹ": "i", "»": ">", "›": ">",
+        "✓": "OK", "✔": "OK", "√": "OK",
+        "✗": "FAIL", "✖": "FAIL", "✕": "FAIL", "✘": "FAIL",
+        "▶": ">", "ℹ": "-", "»": ">", "›": ">",
     }))
+    text = text.expandtabs(8)
     return "".join(ch for ch in text if ch == "\n" or ch == "\t" or ord(ch) >= 32)
 
 
@@ -171,21 +189,95 @@ def read_report(model_dir: Path, report_rel: str, max_lines: int = 64) -> str:
     return "\n".join(lines)
 
 
+def strip_extracted_paths(text: str, model_dir: Path) -> str:
+    """Drop local extracted-dir prefixes so stack traces fit the evidence panel."""
+    resolved = model_dir.resolve()
+    posix = resolved.as_posix()
+    win = str(resolved)
+    for prefix in (f"file://{posix}/", f"file://{win}/", f"{posix}/", f"{win}{os.sep}"):
+        text = text.replace(prefix, "")
+    return text
+
+
+def render_text_png(text: str, out_path: Path, *, font_size: int = 13) -> Image.Image:
+    """Render cleaned terminal text with the mono CLI font and auto-fit width."""
+    font = load_font(_FONT_CANDIDATES, font_size)
+    measure = font.getlength if hasattr(font, "getlength") else (lambda s: len(s) * 8)
+    longest = max((measure(ln) for ln in text.splitlines() if ln), default=800)
+    panel_w = max(800, int(longest) + 40)
+    line_h = font.size + 4 if hasattr(font, "size") else 14
+    n_lines = max(1, len(text.splitlines()))
+    panel_h = 16 + n_lines * line_h + 40
+    img = trim_panel(render_panel(text, font, (panel_w, panel_h)))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out_path)
+    return img
+
+
+def render_extra_command_png(
+    model_dir: Path,
+    cmd: list[str],
+    out_path: Path,
+    *,
+    timeout: int = 60,
+    font_size: int = 13,
+) -> str:
+    """Render one extra numbered evidence PNG from a live command.
+
+    Does not touch `_01_cli.png`. Use this when a quality note claims a
+    mismatch (test failure, unrecorded issue) that the CLI panel does not show.
+    """
+    text = strip_extracted_paths(
+        clean_terminal_text(run_command(model_dir, cmd, timeout=timeout)),
+        model_dir,
+    )
+    render_text_png(text, out_path, font_size=font_size)
+    return text
+
+
+def wrap_to_width(line: str, font, max_w: int) -> list[str]:
+    """Break ``line`` so each piece actually fits in ``max_w`` pixels.
+
+    Character-count wrapping using the width of ``M`` is too short for CJK
+    proportional faces, so ASCII CLI output wraps early and leaves a blank
+    right margin.
+    """
+    if not line:
+        return [""]
+    measure = font.getlength if hasattr(font, "getlength") else (lambda s: len(s) * 8)
+    if measure(line) <= max_w:
+        return [line]
+    pieces: list[str] = []
+    start = 0
+    n = len(line)
+    while start < n:
+        lo, hi = 1, n - start
+        fit = 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if measure(line[start : start + mid]) <= max_w:
+                fit = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        pieces.append(line[start : start + fit])
+        start += fit
+    return pieces
+
+
 def render_panel(text: str, font, size) -> Image.Image:
     """Plain mono-text on white, no title, no border — just the evidence."""
     img = Image.new("RGB", size, "white")
     d = ImageDraw.Draw(img)
     x, y = 16, 16
     max_w = size[0] - 2 * x
-    cw = font.getlength("M") if hasattr(font, "getlength") else 8
-    cols = max(20, int(max_w / cw))
     line_h = font.size + 4 if hasattr(font, "size") else 14
     for raw in clean_terminal_text(text).splitlines():
         if not raw:
             y += line_h
             continue
-        for i in range(0, len(raw), cols):
-            d.text((x, y), raw[i : i + cols], fill="black", font=font)
+        for piece in wrap_to_width(raw, font, max_w):
+            d.text((x, y), piece, fill="black", font=font)
             y += line_h
             if y + line_h > size[1]:
                 return img
@@ -208,9 +300,6 @@ def trim_panel(img: Image.Image, pad: int = 24) -> Image.Image:
 
 
 def compose_one(task_id: str, code: str, sheet_label: str, model_dir: Path, out_dir: Path, report_rel: str) -> dict:
-    mono = load_font(_FONT_CANDIDATES, 13)
-    panel_w, panel_h = 950, 1280
-
     out_dir.mkdir(parents=True, exist_ok=True)
     tag = sheet_label.replace(" ", "_")
 
@@ -229,8 +318,7 @@ def compose_one(task_id: str, code: str, sheet_label: str, model_dir: Path, out_
 
     rendered: list[tuple[str, Path, Image.Image]] = []
     for name, text, path in panels:
-        img = trim_panel(render_panel(text, mono, (panel_w, panel_h)))
-        img.save(path)
+        img = render_text_png(text, path)
         rendered.append((name, path, img))
 
     numbered = sorted(

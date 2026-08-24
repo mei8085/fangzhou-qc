@@ -118,6 +118,9 @@ def audit_evidence_summary(note: str) -> str:
         "备注指出",
         "备注说明",
         "标注人指出",
+        "标注指出",
+        "标注写：",
+        "标注写",
         "标注人认为",
     ):
         idx = text.find(lead)
