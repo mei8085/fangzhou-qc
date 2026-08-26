@@ -42,6 +42,7 @@ from lib.g1 import (  # noqa: E402
     sheet_model_label,
     to_feishu_dirty_tag,
 )
+from lib.label_options import LABEL_HEADER, label_options  # noqa: E402
 from lib.prompt_cheat import is_prompt_cheat_task  # noqa: E402
 
 # ---------- 表头 → reviewer 列定位 ----------
@@ -552,6 +553,19 @@ def category_correct_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]
     return {}
 
 
+def label_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]:
+    col = headers.get(LABEL_HEADER)
+    if not col:
+        return {}
+    value = str(ws.cell(2, col).value or "").strip()
+    if not value:
+        return {col: ["required-empty"]}
+    allowed = set(label_options())
+    if allowed and value not in allowed:
+        return {col: [f"invalid-option:{value}"]}
+    return {}
+
+
 def g1_dirty_tag_issues(ws, headers: dict[str, int], period: str) -> dict[int, list[str]]:
     """G1 Feishu dirty-tag cells must be empty or an exact dropdown option."""
     if period != "G1-new":
@@ -766,6 +780,8 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
     for col, issues in normal_task_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in category_correct_issues(ws, headers).items():
+        bad.setdefault(col, []).extend(issues)
+    for col, issues in label_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in g1_dirty_tag_issues(ws, headers, period).items():
         bad.setdefault(col, []).extend(issues)

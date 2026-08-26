@@ -33,6 +33,7 @@ description: 41期方舟 coding 众测质检工作流。质检题目从本地 do
 | 0819K | 0819K | parapet |
 
 - 配置文件：`skills/qc-eval/config/g1.json`
+- 任务类型选项：`skills/qc-eval/config/g1_label_options.json`。41期源表 `label` 为空时，必须从该文件 10 个选项中选择；未在 `qc_cells.json` 显式填写时，交付脚本按任务名和提示词做启发式推断。
 - 平台质检表单模版：`skills/qc-eval/config/g1_audit_form.json`（从 [review/12232?mode=audit](https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287/review/12232?mode=audit) 读取）
 - 质检后填写文件：`delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md` 与 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`
 - 平台质检表单回填（只保存草稿）：`node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>`
@@ -226,7 +227,9 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 
 `prompt_quality` 对应飞书列“任务质量（题目质量）”，按题目本身的完整性、经济价值、评测价值和可验证性判断；它可以与“是否是高质量题目”不一致，例如题目本身为“高质量”，但模型反馈整体未达到高质量时，“是否是高质量题目”填“否”。命中提示词轮次作弊时 `prompt_quality` 填 `不合格`，`sheet.prompt_cheat` 填 `true`。
 
-`category_correct` 对应飞书列“分类是否正确”，必须填“是/否”；判断源表 `label` 是否与任务真实类型一致。
+`label` 对应飞书列“label”。41期源表该列为空时，需要判断题目真实类型并填入，取值必须来自 `skills/qc-eval/config/g1_label_options.json`。推荐在 `qc_cells.json` 的 `sheet.label` 显式填写；若不填，`push_xlsx.py` 会在本地源表 label 为空时按任务名和提示词启发式补齐。源表 label 已有值时，本地交付不覆盖原值。
+
+`category_correct` 对应飞书列“分类是否正确”，必须填“是/否”；判断源表或补齐后的 `label` 是否与任务真实类型一致。
 
 飞书列 `质检人`、`所属商`（兼容历史错字 `所述商`）由人工/分配流程维护，质检交付脚本不得填写或上传；即使本地 `qc_cells.json` 或源表里存在这些字段，也必须在生成交付物和回写飞书时跳过。
 
@@ -258,7 +261,7 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
 python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-user-instructed
 ```
 
-`push_g1_feishu.py` 会重新读取远端 `8aVVr7` 对应行的“任务”单元格，并与本地交付 xlsx 的任务名完全一致才允许写入。飞书列“一次质检平台审核理由（按模型）”按模型分行，前缀为表头模型名加平台 codeName，例如 `q3.8max（tulip）：……`。“一次质检是否完成”由人工填写，脚本不得写入。非脏数据时不要给「脏数据标签」写入空字符串；脚本会清除单元格内容。已出现「数据无效」的空下拉格，重新 `--write` 即可按同样方式清掉。
+`push_g1_feishu.py` 会重新读取远端 `8aVVr7` 对应行的“任务”单元格，并与本地交付 xlsx 的任务名完全一致才允许写入。飞书 `label` 列只在远端单元格为空时写入；若远端已有值，即使本地交付 xlsx 有新 label 也跳过，避免覆盖人工或上游分类。飞书列“一次质检平台审核理由（按模型）”按模型分行，前缀为表头模型名加平台 codeName，例如 `q3.8max（tulip）：……`。“一次质检是否完成”由人工填写，脚本不得写入。非脏数据时不要给「脏数据标签」写入空字符串；脚本会清除单元格内容。已出现「数据无效」的空下拉格，重新 `--write` 即可按同样方式清掉。
 
 ## 复测启动与截图
 

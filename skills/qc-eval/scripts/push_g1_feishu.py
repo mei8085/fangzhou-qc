@@ -39,6 +39,7 @@ from lib.g1 import (  # noqa: E402
     is_feishu_dirty_tag_related_header,
     to_feishu_dirty_tag,
 )
+from lib.label_options import LABEL_HEADER  # noqa: E402
 from push_feishu import (  # noqa: E402
     READ_ONLY_HEADERS,
     build_push_targets,
@@ -99,6 +100,14 @@ def find_remote_row_by_task_id(
             title = cell_to_text(row[task_idx]).strip() if task_idx < len(row) else ""
             return offset, title
     return None, ""
+
+
+def read_remote_cell(token: str, sheet_id: str, cell: str, profile: str) -> str:
+    """Return current remote cell text for fields that must not be overwritten."""
+    rows = read_range(token, sheet_id, f"{cell}:{cell}", profile)
+    if not rows or not rows[0]:
+        return ""
+    return cell_to_text(rows[0][0]).strip()
 
 
 def load_delivery(task_id: str, local_xlsx: Path | None):
@@ -227,6 +236,8 @@ def main() -> int:
         return 1
 
     text_headers, image_map = build_push_targets(local_headers)
+    if LABEL_HEADER in local_headers and LABEL_HEADER in remote_headers and LABEL_HEADER not in text_headers:
+        text_headers.insert(0, LABEL_HEADER)
     only_headers = [h.strip() for h in str(args.only_headers or "").split(",") if h.strip()]
     if only_headers:
         missing = [h for h in only_headers if h not in local_headers or h not in remote_headers]
@@ -264,6 +275,13 @@ def main() -> int:
         value = ws.cell(2, lcol).value
         text = "" if value is None else str(value)
         cell_a1 = f"{get_column_letter(rcol)}{row}"
+        if header == LABEL_HEADER:
+            remote_text = read_remote_cell(token, args.sheet_id, cell_a1, args.profile)
+            if remote_text:
+                print(f"     [skip] {cell_a1} label already set: {remote_text!r}")
+                continue
+            if not text.strip():
+                continue
         if is_feishu_dirty_tag_header(header):
             # Dropdown cells: writing "" is not a valid option and Feishu shows
             # 「数据无效」. Clear content instead, same as a manual cell clear.

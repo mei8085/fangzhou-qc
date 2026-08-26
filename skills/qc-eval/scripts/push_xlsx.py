@@ -37,6 +37,7 @@ sys.path.insert(0, str(HERE))
 from lib.paths import REPO_ROOT, default_g1_source_xlsx, default_38_source_xlsx  # noqa: E402
 from lib.writing_style import compose_feedback_note  # noqa: E402
 from lib.g1 import to_feishu_dirty_tag  # noqa: E402
+from lib.label_options import LABEL_HEADER, resolve_task_label  # noqa: E402
 
 DEFAULT_SOURCE = default_g1_source_xlsx()
 DEFAULT_SHEET = "Sheet1"
@@ -351,6 +352,23 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
             continue
         if has_sheet_key(sheet, key_or_aliases):
             write_value(ws, row, col, read_sheet_value(sheet, key_or_aliases))
+    label_col = headers.get(LABEL_HEADER)
+    if label_col:
+        current_label = str(ws.cell(row, label_col).value or "").strip()
+        if not current_label:
+            task_col = headers.get("任务")
+            task_title = str(ws.cell(row, task_col).value or "").strip() if task_col else ""
+            write_value(
+                ws,
+                row,
+                label_col,
+                resolve_task_label(
+                    existing_label=current_label,
+                    sheet=sheet,
+                    task_title=task_title,
+                    task_id=task_id,
+                ),
+            )
     high_quality_col = headers.get(HIGH_QUALITY_TASK_HEADER)
     if high_quality_col:
         write_value(ws, row, high_quality_col, derive_high_quality_task(sheet))
