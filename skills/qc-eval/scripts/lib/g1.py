@@ -9,24 +9,24 @@ from pathlib import Path
 from .paths import REPO_ROOT, SKILL_DIR
 
 CONFIG_PATH = SKILL_DIR / "config" / "g1.json"
-PERIOD = "40期"
-PROJECT_ID = 281
+PERIOD = "41期"
+PROJECT_ID = 287
 PROJECT_URL = (
-    "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/281?tab=review"
+    "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287?tab=review"
 )
 AUDIT_URL_TEMPLATE = (
     "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/"
-    "281/review/{taskModelRunId}?mode=audit"
+    "287/review/{taskModelRunId}?mode=audit"
 )
 AUDIT_FORM_TEMPLATE = SKILL_DIR / "config" / "g1_audit_form.json"
-SOURCE_XLSX = REPO_ROOT / "docs" / "40.xlsx"
+SOURCE_XLSX = REPO_ROOT / "docs" / "41.xlsx"
 SOURCE_SHEET = "Sheet1"
-FEISHU_WIKI = "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=qxj6mW"
-FEISHU_SHEET_ID = "qxj6mW"
+FEISHU_WIKI = "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=8aVVr7"
+FEISHU_SHEET_ID = "8aVVr7"
 OUTPUT_SUBDIR = "ark_g1"
 DEFAULT_DIRTY_TAG = "非脏数据"
 
-# Feishu 40期脏数据标签列下拉（截图口径）。非脏数据不要写「非脏数据」，留空。
+# Feishu 41期脏数据标签列下拉（截图口径）。非脏数据不要写「非脏数据」，留空。
 FEISHU_DIRTY_TAG_OPTIONS = [
     "模型资源问题:API请求超时/轨迹大量error",
     "OpenClaw/Hermes框架问题",
@@ -57,16 +57,16 @@ _FEISHU_DIRTY_ALIAS = {
 
 # sheet header prefix → platform codeName
 SHEET_TO_PLATFORM = {
-    "0817A": "magma",
-    "q3.8max": "kiln",
-    "0814C": "jetsam",
-    "0818F": "lintel",
+    "q3.8max": "tulip",
+    "0817A": "oak",
+    "0820B": "quill",
+    "0819K": "parapet",
 }
 CODE_TO_PLATFORM = {
-    "0817A": "magma",
-    "q3.8max": "kiln",
-    "0814C": "jetsam",
-    "0818F": "lintel",
+    "q3.8max": "tulip",
+    "0817A": "oak",
+    "0820B": "quill",
+    "0819K": "parapet",
 }
 PLATFORM_TO_SHEET = {v: k for k, v in SHEET_TO_PLATFORM.items()}
 PLATFORM_TO_CODE = {v: k for k, v in CODE_TO_PLATFORM.items()}
@@ -97,7 +97,7 @@ def load_g1_config() -> dict:
 def sheet_model_label(sheet_name: str) -> str:
     """Return the Feishu audit-reason label with the Ark platform codeName.
 
-    Example: ``0817A`` -> ``0817A（magma）``. Unknown sheet names
+    Example: ``0817A`` -> ``0817A（oak）``. Unknown sheet names
     are returned unchanged so other periods keep their original prefixes.
     """
     name = str(sheet_name or "").strip()

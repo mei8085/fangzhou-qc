@@ -10,10 +10,10 @@
  *   - This script cannot submit. Humans review the draft and submit later.
  *
  * Usage:
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 4267
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 4267 --only magma
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 4267 --dry-run
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 4267 --headed
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --only tulip
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --dry-run
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --headed
  */
 
 const { chromium } = require('playwright');
@@ -276,7 +276,7 @@ function sameEvalSnapshot(before, after) {
 
 async function openAuditPage(page, row) {
   const url = row.audit_url
-    || `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/281/review/${row.task_model_run_id}?mode=audit`;
+    || `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287/review/${row.task_model_run_id}?mode=audit`;
   let lastErr;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {

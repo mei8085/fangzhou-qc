@@ -1,8 +1,8 @@
 {
-  "period": "G1-new",
-  "project_id": 277,
+  "period": "41期",
+  "project_id": 287,
   "source": {
-    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277/review/12232?mode=audit",
+    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287/review/12232?mode=audit",
     "task_id": 4267,
     "task_title": "肉鸽自走棋",
     "task_model_run_id": 12232,
@@ -11,7 +11,9 @@
     "captured_at": "2026-08-22T09:02:32.767Z",
     "api": {
       "action": "CaseBffV1CrowdtestTaskModelAuditGet",
-      "body": { "taskModelRunId": 12232 }
+      "body": {
+        "taskModelRunId": 12232
+      }
     },
     "local_snapshot": [
       "tasks/<TASK_ID>/ark_g1/audit_form_<runId>.json",
@@ -20,9 +22,20 @@
     ]
   },
   "page": {
-    "left_tabs": ["Session 轨迹", "Workspace"],
-    "right_tabs": ["评测打分", "质检"],
-    "actions": ["返回列表", "保存草稿", "打回", "提交审核"]
+    "left_tabs": [
+      "Session 轨迹",
+      "Workspace"
+    ],
+    "right_tabs": [
+      "评测打分",
+      "质检"
+    ],
+    "actions": [
+      "返回列表",
+      "保存草稿",
+      "打回",
+      "提交审核"
+    ]
   },
   "annotator_panel": {
     "title": "评测打分",
@@ -31,7 +44,10 @@
       {
         "id": 15,
         "name": "执行过程",
-        "score_range": [1, 10],
+        "score_range": [
+          1,
+          10
+        ],
         "attribution_tags": [
           "自测不充分",
           "能绕过环境缺陷",
@@ -49,7 +65,10 @@
       {
         "id": 14,
         "name": "产物质量",
-        "score_range": [1, 10],
+        "score_range": [
+          1,
+          10
+        ],
         "attribution_tags": [
           "用猜测补空白",
           "忽略关键约束",
@@ -77,14 +96,23 @@
     "fill_script": "skills/qc-eval/scripts/fill_g1_audit_form.js",
     "fill_action": "保存草稿",
     "save_api": "CaseBffV1CrowdtestTaskModelAuditSave",
-    "forbidden_actions": ["提交审核", "打回", "返回列表"],
+    "forbidden_actions": [
+      "提交审核",
+      "打回",
+      "返回列表"
+    ],
     "fields": [
       {
         "key": "task_quality",
         "label": "请选择该任务的质量",
         "required": true,
         "type": "radio",
-        "options": ["高", "中", "低", "不可用"],
+        "options": [
+          "高",
+          "中",
+          "低",
+          "不可用"
+        ],
         "qc_cells": "sheet.prompt_quality",
         "map_from_sheet": {
           "高质量": "高",
@@ -111,7 +139,11 @@
         "label": "请选择该用户的反馈质量",
         "required": true,
         "type": "radio",
-        "options": ["完全可用", "部分可用", "完全不可用"],
+        "options": [
+          "完全可用",
+          "部分可用",
+          "完全不可用"
+        ],
         "qc_cells": "sheet.models.<模型>.rating",
         "map_from_sheet": {
           "高质量": "完全可用",
@@ -158,36 +190,96 @@
         "empty_means": "不选",
         "aliases": {
           "非脏数据": [],
-          "API 请求超时 / 轨迹大量 error": ["模型资源问题：API 请求超时 / 轨迹大量 error"],
-          "API请求超时/轨迹大量error": ["模型资源问题：API 请求超时 / 轨迹大量 error"],
-          "模型资源问题：API 请求超时 / 轨迹大量 error": ["模型资源问题：API 请求超时 / 轨迹大量 error"],
-          "模型资源问题:API请求超时/轨迹大量error": ["模型资源问题：API 请求超时 / 轨迹大量 error"],
-          "OpenClaw / Hermes 框架问题": ["OpenClaw/Hermes框架问题"],
-          "OpenClaw/Hermes框架问题": ["OpenClaw/Hermes框架问题"],
-          "低质量任务": ["用户问题：低质量任务"],
-          "用户问题：低质量任务": ["用户问题：低质量任务"],
-          "用户问题:低质量任务": ["用户问题：低质量任务"],
-          "提示词轮次作弊": ["用户问题：低质量任务"],
-          "轮次作弊": ["用户问题：低质量任务"],
-          "敷衍恶意打分": ["用户问题：敷衍恶意打分"],
-          "完全敷衍": ["用户问题：敷衍恶意打分"],
-          "虚假反馈": ["用户问题：敷衍恶意打分"],
-          "trace和反馈结果明显不一致": ["用户问题：敷衍恶意打分"],
-          "用户问题：敷衍恶意打分": ["用户问题：敷衍恶意打分"],
-          "用户问题:敷衍恶意打分": ["用户问题：敷衍恶意打分"],
-          "AI 打分 / AI 评价": ["用户问题：AI 打分 / AI 评价"],
-          "AI打分/AI评价": ["用户问题：AI 打分 / AI 评价"],
-          "用户问题：AI 打分 / AI 评价": ["用户问题：AI 打分 / AI 评价"],
-          "用户问题:AI打分/AI评价": ["用户问题：AI 打分 / AI 评价"],
-          "用户切换模型错误": ["用户问题：用户切换模型错误"],
-          "用户问题：用户切换模型错误": ["用户问题：用户切换模型错误"],
-          "用户问题:用户切换模型错误": ["用户问题：用户切换模型错误"],
-          "题目红线（prompt 简单 / VLM 错配）": ["用户问题：LLM任务测试VLM能力"],
-          "LLM任务测试VLM能力": ["用户问题：LLM任务测试VLM能力"],
-          "用户问题：LLM任务测试VLM能力": ["用户问题：LLM任务测试VLM能力"],
-          "用户问题:LLM任务测试VLM能力": ["用户问题：LLM任务测试VLM能力"],
-          "其他": ["其他"],
-          "其它": ["其他"]
+          "API 请求超时 / 轨迹大量 error": [
+            "模型资源问题：API 请求超时 / 轨迹大量 error"
+          ],
+          "API请求超时/轨迹大量error": [
+            "模型资源问题：API 请求超时 / 轨迹大量 error"
+          ],
+          "模型资源问题：API 请求超时 / 轨迹大量 error": [
+            "模型资源问题：API 请求超时 / 轨迹大量 error"
+          ],
+          "模型资源问题:API请求超时/轨迹大量error": [
+            "模型资源问题：API 请求超时 / 轨迹大量 error"
+          ],
+          "OpenClaw / Hermes 框架问题": [
+            "OpenClaw/Hermes框架问题"
+          ],
+          "OpenClaw/Hermes框架问题": [
+            "OpenClaw/Hermes框架问题"
+          ],
+          "低质量任务": [
+            "用户问题：低质量任务"
+          ],
+          "用户问题：低质量任务": [
+            "用户问题：低质量任务"
+          ],
+          "用户问题:低质量任务": [
+            "用户问题：低质量任务"
+          ],
+          "提示词轮次作弊": [
+            "用户问题：低质量任务"
+          ],
+          "轮次作弊": [
+            "用户问题：低质量任务"
+          ],
+          "敷衍恶意打分": [
+            "用户问题：敷衍恶意打分"
+          ],
+          "完全敷衍": [
+            "用户问题：敷衍恶意打分"
+          ],
+          "虚假反馈": [
+            "用户问题：敷衍恶意打分"
+          ],
+          "trace和反馈结果明显不一致": [
+            "用户问题：敷衍恶意打分"
+          ],
+          "用户问题：敷衍恶意打分": [
+            "用户问题：敷衍恶意打分"
+          ],
+          "用户问题:敷衍恶意打分": [
+            "用户问题：敷衍恶意打分"
+          ],
+          "AI 打分 / AI 评价": [
+            "用户问题：AI 打分 / AI 评价"
+          ],
+          "AI打分/AI评价": [
+            "用户问题：AI 打分 / AI 评价"
+          ],
+          "用户问题：AI 打分 / AI 评价": [
+            "用户问题：AI 打分 / AI 评价"
+          ],
+          "用户问题:AI打分/AI评价": [
+            "用户问题：AI 打分 / AI 评价"
+          ],
+          "用户切换模型错误": [
+            "用户问题：用户切换模型错误"
+          ],
+          "用户问题：用户切换模型错误": [
+            "用户问题：用户切换模型错误"
+          ],
+          "用户问题:用户切换模型错误": [
+            "用户问题：用户切换模型错误"
+          ],
+          "题目红线（prompt 简单 / VLM 错配）": [
+            "用户问题：LLM任务测试VLM能力"
+          ],
+          "LLM任务测试VLM能力": [
+            "用户问题：LLM任务测试VLM能力"
+          ],
+          "用户问题：LLM任务测试VLM能力": [
+            "用户问题：LLM任务测试VLM能力"
+          ],
+          "用户问题:LLM任务测试VLM能力": [
+            "用户问题：LLM任务测试VLM能力"
+          ],
+          "其他": [
+            "其他"
+          ],
+          "其它": [
+            "其他"
+          ]
         }
       }
     ]

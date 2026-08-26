@@ -1,6 +1,6 @@
-# G1-new 平台质检表单模版
+# 41期平台质检表单模版
 
-来源：[review/12232?mode=audit](https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277/review/12232?mode=audit)（任务 4267 / harrier）。
+来源：[review/12232?mode=audit](https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287/review/12232?mode=audit)（表单结构沿用；41期项目 287）。
 
 机器可读副本：`skills/qc-eval/config/g1_audit_form.json`。
 
@@ -9,7 +9,7 @@
 - `delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md`
 - `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`
 
-每个模型打开：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277/review/<taskModelRunId>?mode=audit`，右侧切到「质检」。
+每个模型打开：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287/review/<taskModelRunId>?mode=audit`，右侧切到「质检」。
 
 ---
 
@@ -31,7 +31,7 @@
 
 高 / 中 / 低 / 不可用
 
-五个模型共用同一判定。飞书「任务质量（题目质量）」映射：高质量→高，合格→中，不合格/红线→不可用。
+四个模型共用同一判定。飞书「任务质量（题目质量）」映射：高质量→高，合格→中，不合格/红线→不可用。
 
 ### 任务质量备注
 

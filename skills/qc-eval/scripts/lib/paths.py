@@ -12,7 +12,7 @@ REPO_ROOT = SKILL_DIR.parent.parent
 
 SOURCE_XLSX_NAME_38 = "众测质检38.xlsx"
 WINDOWS_LEGACY_SOURCE_38 = Path("D:/fz/fangzhou") / SOURCE_XLSX_NAME_38
-G1_SOURCE_XLSX = REPO_ROOT / "docs" / "40.xlsx"
+G1_SOURCE_XLSX = REPO_ROOT / "docs" / "41.xlsx"
 
 
 def default_g1_source_xlsx() -> Path:
@@ -20,7 +20,7 @@ def default_g1_source_xlsx() -> Path:
 
     Resolution order:
     1. ``QC_SOURCE_XLSX`` environment variable, if set
-    2. Repo-local ``docs/40.xlsx``
+    2. Repo-local ``docs/41.xlsx``
     """
     env = os.environ.get("QC_SOURCE_XLSX", "").strip()
     if env:

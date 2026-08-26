@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe current-period tasks from the local source xlsx (docs/40.xlsx).
+"""Probe current-period tasks from the local source xlsx (docs/41.xlsx).
 
 The workflow does not sync the QC working set from Feishu. The local workbook
 is the source of truth; Feishu is only the delivery target.
@@ -81,7 +81,7 @@ def main() -> int:
 
     source = Path(args.source)
     if not source.exists():
-        print(f"ERROR: 40期源表不存在: {source}", file=sys.stderr)
+        print(f"ERROR: {PERIOD}源表不存在: {source}", file=sys.stderr)
         return 2
 
     sheet_title, header_row, headers, rows = load_rows(source, args.sheet)
@@ -101,7 +101,7 @@ def main() -> int:
         "platform_map": CODE_TO_PLATFORM,
         "task_rows": rows,
         "target_matches": matches,
-        "workspace_id_rule": "use local source 任务ID; same ID is used to search Ark project 281",
+        "workspace_id_rule": "use local source 任务ID; same ID is used to search the configured Ark project",
     }
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

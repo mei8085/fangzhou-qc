@@ -7,7 +7,7 @@ refuses to write unless the remote task title matches the local delivery
 workbook's task title.
 
 Default target:
-  https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=qxj6mW
+  https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=8aVVr7
 
 Usage:
   python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
@@ -135,7 +135,7 @@ def verify_screenshots(task_id: str, skip: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("task_id", help="40期源表「任务ID」，也是 tasks/ 和 delivery/ 子目录名")
+    parser.add_argument("task_id", help=f"{PERIOD}源表「任务ID」，也是 tasks/ 和 delivery/ 子目录名")
     parser.add_argument("--wiki-url", default=DEFAULT_WIKI)
     parser.add_argument("--sheet-id", default=DEFAULT_SHEET_ID)
     parser.add_argument("--profile", default=DEFAULT_PROFILE)
