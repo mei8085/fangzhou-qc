@@ -14,9 +14,9 @@ from tasks/<TASK_ID>/qc_cells.json after the rebuild.
 
 Usage:
     push_xlsx.py <TASK_ID> [<TASK_ID> ...]
-        [--source <repo>/docs/G1-new.xlsx]
+        [--source <repo>/docs/40.xlsx]
         [--sheet Sheet1]
-        [--period G1-new]
+        [--period 40期]
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ MACHINE_QC_HEADER = "机器质检结果是否正确"
 MACHINE_QC_OPTIONS = ("正确", "部分正确可参考", "错误")
 PERIOD_PRESETS = {
     "G1-new": (SOURCE_G1, SHEET_G1),
+    "40期": (SOURCE_G1, SHEET_G1),
     "38期": (SOURCE_38, SHEET_38),
 }
 
@@ -56,6 +57,7 @@ PERIOD_PRESETS = {
 HEADER_MAP_SHEET = {
     "任务质量（题目质量）": "prompt_quality",
     "题目质量说明": "prompt_quality_note",
+    "题目是否可验": "verifiable",
     "题目是否可验证": "verifiable",
     "不可验证原因": "verifiable_reason",
     "分类是否正确": ("category_correct", "is_category_correct", "分类是否正确"),
@@ -63,11 +65,7 @@ HEADER_MAP_SHEET = {
     "红线问题": ("redline_issue", "redline_problem", "red_flag_issue"),
     "题目红线问题": ("redline_issue", "redline_problem", "red_flag_issue"),
     "题目红线备注": ("redline_note", "redline_remark", "题目红线备注"),
-    "质检人": "reviewer",
-    "所属商": "supplier",
-    "所述商": "supplier",
     "一次质检平台审核理由（按模型）": ("platform_audit_reasons", "audit_reasons", "一次质检平台审核理由（按模型）"),
-    "一次质检是否完成": ("qc_done", "once_qc_done", "一次质检是否完成"),
     "0614C完成质量实际打分": "score_0614C",
     "GLM5.2完成质量打分": "score_GLM5_2",
     "机器质检结果是否正确": ("machine_qc_correct", "machine_result_correct", "machine_correct"),
@@ -79,7 +77,7 @@ _PERIOD_OPTIONAL_HEADERS = {
     "红线问题",
     "题目红线问题",
     "题目红线备注",
-    "一次质检是否完成",
+    "题目是否可验证",
     "是否正常题目",
     "机器质检结果是否正确",
     "错误原因",
@@ -102,7 +100,10 @@ PER_MODEL_SUFFIXES = {
 #   '0614C反馈质量（作业质量）', 'GLM 5.2反馈质量（作业质量）', ...
 # 一律从表头动态抽模型名，不再硬编码 4 个或 5 个。
 _MODEL_SUFFIX_KEY = "反馈质量（作业质量）"
-READ_ONLY_HEADERS = {"是否结算"}
+# These cells are managed in the shared Feishu sheet by humans / dispatch.
+# Keep them out of generated delivery files so upload scripts cannot overwrite
+# manually assigned ownership fields.
+READ_ONLY_HEADERS = {"是否结算", "质检人", "所属商", "所述商"}
 HIGH_QUALITY_TASK_HEADER = "是否是高质量题目"
 NORMAL_TASK_HEADER = "是否正常题目"
 HIGH_QUALITY_PROMPT_VALUE = "高质量"
@@ -337,6 +338,8 @@ def build_delivery_ws(src_ws, sheet_name: str, header_row: int, task_row: int, o
 def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> None:
     sheet = qc.get("sheet", {})
     for header, key_or_aliases in HEADER_MAP_SHEET.items():
+        if header in READ_ONLY_HEADERS:
+            continue
         col = headers.get(header)
         if not col:
             if key_or_aliases == "supplier":
@@ -380,11 +383,7 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
                 if mkey == "note":
                     value = compose_feedback_note(mdata)
                 if mkey == "dirty_tag":
-                    is_g1 = any(name.startswith("【G1】") for name in model_names)
-                    if is_g1:
-                        value = to_feishu_dirty_tag(value)
-                    elif value is None or not str(value).strip():
-                        value = "非脏数据"
+                    value = to_feishu_dirty_tag(value)
                 write_value(ws, row, col, value)
         if not mdata:
             print(f"     [warn] qc_cells.sheet.models 里没有 {model!r}")
@@ -448,7 +447,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("task_ids", nargs="+")
     p.add_argument("--period", choices=sorted(PERIOD_PRESETS),
-                   help="使用内置期数配置；G1-new 使用源表「任务ID」作为本地目录名")
+                   help="使用内置期数配置；40期使用源表「任务ID」作为本地目录名")
     p.add_argument("--source", default=None)
     p.add_argument("--sheet", default=None)
     p.add_argument("--tasks-dir", default=str(REPO_ROOT / "tasks"))

@@ -1,15 +1,15 @@
 {
-  "period": "G1-new",
-  "project_id": 277,
-  "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277?tab=review",
-  "task_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/277/task/{taskId}",
-  "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277/review/{taskModelRunId}?mode=audit",
+  "period": "40期",
+  "project_id": 281,
+  "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/281?tab=review",
+  "task_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/281/task/{taskId}",
+  "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/281/review/{taskModelRunId}?mode=audit",
   "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
   "audit_form_fill_script": "skills/qc-eval/scripts/fill_g1_audit_form.js",
-  "source_xlsx": "docs/G1-new.xlsx",
+  "source_xlsx": "docs/40.xlsx",
   "source_sheet": "Sheet1",
-  "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=cHr9N5",
-  "feishu_sheet_id": "cHr9N5",
+  "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=qxj6mW",
+  "feishu_sheet_id": "qxj6mW",
   "feishu_dirty_tag_options": [
     "模型资源问题:API请求超时/轨迹大量error",
     "OpenClaw/Hermes框架问题",
@@ -24,29 +24,24 @@
   "output_subdir": "ark_g1",
   "models": [
     {
-      "sheet": "【G1】S347",
-      "code": "S347",
-      "platform": "harrier"
+      "sheet": "0817A",
+      "code": "0817A",
+      "platform": "magma"
     },
     {
-      "sheet": "【G1】S20",
-      "code": "S20",
-      "platform": "grotto"
+      "sheet": "q3.8max",
+      "code": "q3.8max",
+      "platform": "kiln"
     },
     {
-      "sheet": "【G1】S53",
-      "code": "S53",
-      "platform": "ferrite"
+      "sheet": "0814C",
+      "code": "0814C",
+      "platform": "jetsam"
     },
     {
-      "sheet": "【G1】S60",
-      "code": "S60",
-      "platform": "estuary"
-    },
-    {
-      "sheet": "【G1】S1075",
-      "code": "S1075",
-      "platform": "dendrite"
+      "sheet": "0818F",
+      "code": "0818F",
+      "platform": "lintel"
     }
   ]
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Fill the Ark G1-new QC form from delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json
+ * Fill the Ark current-period QC form from delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json
  * and click only 「保存草稿」.
  *
  * Hard safety rules:
@@ -11,7 +11,7 @@
  *
  * Usage:
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 4267
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 4267 --only harrier
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 4267 --only magma
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 4267 --dry-run
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 4267 --headed
  */
@@ -276,7 +276,7 @@ function sameEvalSnapshot(before, after) {
 
 async function openAuditPage(page, row) {
   const url = row.audit_url
-    || `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/277/review/${row.task_model_run_id}?mode=audit`;
+    || `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/281/review/${row.task_model_run_id}?mode=audit`;
   let lastErr;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {

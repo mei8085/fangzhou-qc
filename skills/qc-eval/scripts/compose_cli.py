@@ -15,9 +15,9 @@ do not add labels, captions, borders, or reviewer-authored explanation text.
 When extra numbered screenshots already exist for the same model, they are
 included in the verify composite.
 
-Terminal panels use ``MONO_FONT_CANDIDATES`` (Menlo / Consolas / DejaVu Sans Mono)
-via ``render_text_png``. Do not render CLI/test output with CJK proportional
-faces such as Hiragino or PingFang; digit 4 becomes unreadable.
+Terminal panels render ASCII with ``MONO_FONT_CANDIDATES`` (Menlo / Consolas /
+DejaVu Sans Mono) and use CJK fallback only for non-ASCII glyphs. This keeps
+digits readable while preserving Chinese paths and logs.
 
 If a quality note claims a mismatch the CLI panel does not show (test failure,
 unrecorded product issue), do not rerun this script for the whole task: it
@@ -56,6 +56,38 @@ REPO_ROOT = HERE.parent.parent.parent
 # digits such as 4 lose the crossbar; use Menlo/Consolas for terminal panels.
 _FONT_CANDIDATES = MONO_FONT_CANDIDATES
 _LABEL_FONT_CANDIDATES = CJK_FONT_CANDIDATES
+
+
+def _font_width(font, text: str) -> float:
+    if hasattr(font, "getlength"):
+        return font.getlength(text)
+    return len(text) * 8
+
+
+def _mixed_text_width(text: str, mono_font, cjk_font) -> float:
+    total = 0.0
+    for ch in text:
+        total += _font_width(cjk_font if ord(ch) > 127 else mono_font, ch)
+    return total
+
+
+def _draw_mixed_text(draw: ImageDraw.ImageDraw, xy: tuple[int, int], text: str, mono_font, cjk_font) -> None:
+    x, y = xy
+    buf = ""
+    active_font = None
+    for ch in text:
+        ch_font = cjk_font if ord(ch) > 127 else mono_font
+        if active_font is None:
+            active_font = ch_font
+        if ch_font is not active_font:
+            draw.text((x, y), buf, fill="black", font=active_font)
+            x += _font_width(active_font, buf)
+            buf = ch
+            active_font = ch_font
+        else:
+            buf += ch
+    if buf and active_font is not None:
+        draw.text((x, y), buf, fill="black", font=active_font)
 
 
 def _npm_cmd() -> list[str]:
@@ -190,7 +222,9 @@ def read_report(model_dir: Path, report_rel: str, max_lines: int = 64) -> str:
 
 
 def strip_extracted_paths(text: str, model_dir: Path) -> str:
-    """Drop local extracted-dir prefixes so stack traces fit the evidence panel."""
+    """Redact local absolute workspace paths from evidence screenshots."""
+    repo = REPO_ROOT.resolve().as_posix()
+    text = text.replace(repo, "<repo>")
     resolved = model_dir.resolve()
     posix = resolved.as_posix()
     win = str(resolved)
@@ -200,15 +234,17 @@ def strip_extracted_paths(text: str, model_dir: Path) -> str:
 
 
 def render_text_png(text: str, out_path: Path, *, font_size: int = 13) -> Image.Image:
-    """Render cleaned terminal text with the mono CLI font and auto-fit width."""
+    """Render terminal text with mono ASCII and CJK fallback for Chinese logs."""
     font = load_font(_FONT_CANDIDATES, font_size)
-    measure = font.getlength if hasattr(font, "getlength") else (lambda s: len(s) * 8)
-    longest = max((measure(ln) for ln in text.splitlines() if ln), default=800)
+    fallback = load_font(_LABEL_FONT_CANDIDATES, font_size)
+    cleaned = clean_terminal_text(text)
+    longest = max((_mixed_text_width(ln, font, fallback) for ln in cleaned.splitlines() if ln), default=800)
     panel_w = max(800, int(longest) + 40)
     line_h = font.size + 4 if hasattr(font, "size") else 14
-    n_lines = max(1, len(text.splitlines()))
+    max_w = panel_w - 32
+    n_lines = sum(max(1, len(wrap_to_width(ln, font, max_w, fallback))) for ln in cleaned.splitlines()) or 1
     panel_h = 16 + n_lines * line_h + 40
-    img = trim_panel(render_panel(text, font, (panel_w, panel_h)))
+    img = trim_panel(render_panel(cleaned, font, (panel_w, panel_h), fallback))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     img.save(out_path)
     return img
@@ -235,7 +271,7 @@ def render_extra_command_png(
     return text
 
 
-def wrap_to_width(line: str, font, max_w: int) -> list[str]:
+def wrap_to_width(line: str, font, max_w: int, fallback_font=None) -> list[str]:
     """Break ``line`` so each piece actually fits in ``max_w`` pixels.
 
     Character-count wrapping using the width of ``M`` is too short for CJK
@@ -244,7 +280,9 @@ def wrap_to_width(line: str, font, max_w: int) -> list[str]:
     """
     if not line:
         return [""]
-    measure = font.getlength if hasattr(font, "getlength") else (lambda s: len(s) * 8)
+    fallback = fallback_font or load_font(_LABEL_FONT_CANDIDATES, getattr(font, "size", 13))
+    def measure(s: str) -> float:
+        return _mixed_text_width(s, font, fallback)
     if measure(line) <= max_w:
         return [line]
     pieces: list[str] = []
@@ -265,19 +303,20 @@ def wrap_to_width(line: str, font, max_w: int) -> list[str]:
     return pieces
 
 
-def render_panel(text: str, font, size) -> Image.Image:
+def render_panel(text: str, font, size, fallback_font=None) -> Image.Image:
     """Plain mono-text on white, no title, no border — just the evidence."""
     img = Image.new("RGB", size, "white")
     d = ImageDraw.Draw(img)
     x, y = 16, 16
     max_w = size[0] - 2 * x
     line_h = font.size + 4 if hasattr(font, "size") else 14
+    fallback = fallback_font or load_font(_LABEL_FONT_CANDIDATES, getattr(font, "size", 13))
     for raw in clean_terminal_text(text).splitlines():
         if not raw:
             y += line_h
             continue
-        for piece in wrap_to_width(raw, font, max_w):
-            d.text((x, y), piece, fill="black", font=font)
+        for piece in wrap_to_width(raw, font, max_w, fallback):
+            _draw_mixed_text(d, (x, y), piece, font, fallback)
             y += line_h
             if y + line_h > size[1]:
                 return img
@@ -318,6 +357,7 @@ def compose_one(task_id: str, code: str, sheet_label: str, model_dir: Path, out_
 
     rendered: list[tuple[str, Path, Image.Image]] = []
     for name, text, path in panels:
+        text = strip_extracted_paths(text, model_dir)
         img = render_text_png(text, path)
         rendered.append((name, path, img))
 

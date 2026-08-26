@@ -1,8 +1,9 @@
-"""Parse annotator attribution tags and flag tag/remark mismatches.
+"""Parse annotator attribution tags and flag tag/remark contradictions.
 
-G1 evaluation pages show 执行过程 / 执行产物 tags next to dimension remarks.
-QC must compare the selected tag with the remark body. A defect tag paired
-with praise-only text is a wrong-tag issue and cannot be rated 高质量.
+G1 evaluation pages show 执行过程 / 产物质量 tags next to dimension remarks.
+QC treats selected tags as part of the annotator's feedback. A selected tag
+does not need to be repeated in the remark; only explicit contradictions
+between the tag and remark are flagged here.
 """
 
 from __future__ import annotations
@@ -17,10 +18,10 @@ from .paths import REPO_ROOT
 
 
 PROCESS_DIM = 15
-ARTIFACT_DIM = 14
+ARTIFACT_DIM = 16
 DIM_FALLBACK_NAMES = {
     PROCESS_DIM: "执行过程",
-    ARTIFACT_DIM: "执行产物",
+    ARTIFACT_DIM: "产物质量",
 }
 
 # Platform defect tags. Positive tags such as 模糊意图理解好 are omitted.
@@ -46,49 +47,6 @@ DEFECT_TAGS = {
     "违背要求",
     "模型遗漏或遗忘",
 }
-
-PRAISE_MARKERS = (
-    "比较充分",
-    "更加充分",
-    "也很充分",
-    "自测充分",
-    "比较完整",
-    "整体的能力比较完整",
-    "能力比较完整",
-    "整体比较完整",
-    "能展示入口",
-    "基本能展示",
-    "比其他模型更好",
-    "完整度更高",
-    "还不错",
-)
-
-DEFECT_ACK_MARKERS = (
-    "不充分",
-    "不完整",
-    "缺失",
-    "未实现",
-    "未完成",
-    "未经过自测",
-    "未自测",
-    "没有自测",
-    "失败",
-    "遗漏",
-    "遗忘",
-    "没有入口",
-    "没入口",
-    "无法",
-    "卡住",
-    "加载中",
-    "不可用",
-    "报错",
-    "重试",
-    "中断",
-    "缺陷",
-    "bug",
-    "Bug",
-    "BUG",
-)
 
 TAG_ISSUE_IN_NOTE = re.compile(r"标签|错选")
 BRACKET_TAG = re.compile(r"^【([^】]+)】")
@@ -133,10 +91,12 @@ def _has_any(text: str, markers: tuple[str, ...]) -> bool:
 
 
 def mismatch_reasons(tag_name: str, remark: str) -> list[str]:
-    """Return mismatch codes for one selected defect tag versus its remark.
+    """Return contradiction codes for one selected defect tag versus remark.
 
-    Empty list means the tag and remark can stand together. Prefix checks are
-    done once per dimension in ``parse_evaluation``.
+    Empty list means the tag and remark can stand together. A remark that does
+    not mention the tag is acceptable because the tag itself is part of the
+    annotator's evaluation. Prefix checks are done once per dimension in
+    ``parse_evaluation``.
     """
     tag = str(tag_name or "").strip()
     body = strip_tag_prefix(str(remark or "").strip())
@@ -146,11 +106,9 @@ def mismatch_reasons(tag_name: str, remark: str) -> list[str]:
     if tag == "自测不充分" and "充分" in body and "不充分" not in body:
         reasons.append("tag-selftest-insufficient-but-remark-sufficient")
     if tag == "模型遗漏或遗忘" and _has_any(body, ("完整", "能展示")) and not _has_any(
-        body, ("遗漏", "遗忘", "缺失", "未实现", "没入口", "没有入口")
+        body, ("遗漏", "遗忘", "缺失", "未实现", "没入口", "没有入口", "不完整", "漏判", "漏掉", "没把")
     ):
         reasons.append("tag-omission-but-remark-complete")
-    if _has_any(body, PRAISE_MARKERS) and not _has_any(body, DEFECT_ACK_MARKERS):
-        reasons.append("tag-defect-but-remark-praise")
     return reasons
 
 
@@ -187,16 +145,10 @@ def parse_evaluation(payload: dict) -> list[dict]:
             issues.append("remark-has-tag-prefix-but-no-selected-tag")
         elif prefix and prefix not in tags:
             issues.append(f"remark-prefix-is-{prefix}-not-selected")
-        praise_only = False
         for tag in tags:
             for item in mismatch_reasons(tag, remark):
-                if item == "tag-defect-but-remark-praise":
-                    praise_only = True
-                    continue
                 if item not in issues:
                     issues.append(item)
-        if praise_only and "tag-defect-but-remark-praise" not in issues:
-            issues.append("tag-defect-but-remark-praise")
         rows.append({
             "dimension_id": dim_id,
             "dimension": _dim_name(dim_id, dictionaries),
@@ -315,6 +267,13 @@ def self_test() -> list[str]:
     if bug_with_ack:
         failures.append(f"false-positive-bug-with-ack:{bug_with_ack}")
 
+    tag_not_repeated = mismatch_reasons(
+        "效率太低",
+        "【效率太低】主页面能打开，核心功能有缺失。",
+    )
+    if tag_not_repeated:
+        failures.append(f"false-positive-tag-not-repeated:{tag_not_repeated}")
+
     prefix_mismatch = mismatch_reasons(
         "过早宣称完成",
         "【自测不充分】产物不可用，只显示加载中",
@@ -326,24 +285,24 @@ def self_test() -> list[str]:
             "remark": "",
             "dimensionResults": [
                 {"dimensionId": 15, "score": 2, "remark": "【自测不充分】产物不可用"},
-                {"dimensionId": 14, "score": 2, "remark": "【自测不充分】产物不可用"},
+                {"dimensionId": 16, "score": 2, "remark": "【自测不充分】产物不可用"},
             ],
             "tagMaps": [
-                {"dimensionId": 14, "tagId": 65},
+                {"dimensionId": 16, "tagId": 65},
             ],
         },
         "dictionaries": {
             "dimensions": [
                 {"id": 15, "name": "执行过程"},
-                {"id": 14, "name": "执行产物"},
+                {"id": 16, "name": "产物质量"},
             ],
             "tags": [
-                {"id": 65, "dimensionId": 14, "name": "过早宣称完成"},
+                {"id": 65, "dimensionId": 16, "name": "过早宣称完成"},
                 {"id": 64, "dimensionId": 15, "name": "自测不充分"},
             ],
         },
     })
-    artifact = next(item for item in prefix_row if item["dimension_id"] == 14)
+    artifact = next(item for item in prefix_row if item["dimension_id"] == 16)
     if "remark-prefix-is-自测不充分-not-selected" not in artifact["mismatches"]:
         failures.append("missed-prefix-not-in-selected-tags")
 

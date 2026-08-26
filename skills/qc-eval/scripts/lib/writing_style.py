@@ -164,7 +164,7 @@ def opening_prefix(text: str, n: int) -> str:
 
 
 def strip_audit_model_prefix(line: str) -> str:
-    """Strip ``【G1】S347（harrier）：`` or ``summit：`` from an audit-reason line."""
+    """Strip ``0817A（magma）：`` or ``summit：`` from an audit-reason line."""
     return MODEL_AUDIT_PREFIX.sub("", str(line or "").strip(), count=1).strip()
 
 
@@ -245,11 +245,11 @@ def score_clause(data: dict) -> str:
     process_text = "" if process is None else str(process).strip()
     artifact_text = "" if artifact is None else str(artifact).strip()
     if process_text and artifact_text:
-        return f"过程 {process_text} 分、产物 {artifact_text} 分。"
+        return f"过程 {process_text} 分、产物质量 {artifact_text} 分。"
     if process_text:
         return f"过程 {process_text} 分。"
     if artifact_text:
-        return f"产物 {artifact_text} 分。"
+        return f"产物质量 {artifact_text} 分。"
     return ""
 
 
@@ -323,7 +323,7 @@ _AUDIT_SHEET_PHRASES = (
     "反馈质量为不合格",
 )
 _TEMPLATE_NOTES = {
-    "高质量": "标注人给执行过程 8 分、执行产物 8 分，和产物实测情况一致，评分正确，反馈质量为高质量。",
+    "高质量": "标注人给执行过程 8 分、产物质量 8 分，和产物实测情况一致，评分正确，反馈质量为高质量。",
     "合格": "主页面能开和标注一致。过程 8 分相符，产物 9 分偏高，反馈质量为合格。",
     "不合格": "标注评语空泛且串图，属敷衍恶意打分，结论不可信。反馈质量为不合格。",
 }
@@ -334,12 +334,12 @@ _QUALIFIED_GAP_RE = re.compile(
     r"错选|标签与备注"
 )
 _PROCESS_SCORE_RE = re.compile(r"过程\s*\d+\s*分")
-_ARTIFACT_SCORE_RE = re.compile(r"产物\s*\d+\s*分")
+_ARTIFACT_SCORE_RE = re.compile(r"产物(?:质量)?\s*\d+\s*分")
 _PROCESS_SCORE_VERDICT_RE = re.compile(
     r"过程\s*\d+\s*分.{0,24}(?:偏高|偏低|相符|合理)"
 )
 _ARTIFACT_SCORE_VERDICT_RE = re.compile(
-    r"产物\s*\d+\s*分.{0,24}(?:偏高|偏低|相符|合理)"
+    r"产物(?:质量)?\s*\d+\s*分.{0,24}(?:偏高|偏低|相符|合理)"
 )
 
 
@@ -364,6 +364,16 @@ _DEFAULT_VAGUE = (
     "可核",
     "判断成立",
 )
+_AUDIT_ONLY_SCORE_RE = re.compile(
+    r"^(?:"
+    r"标注打分和产物实测情况一致，评分正确|"
+    r"过程\s*\d+\s*分[、，,]\s*产物(?:质量)?\s*\d+\s*分和产物实测情况一致(?:，评分正确)?|"
+    r"评分正确|"
+    r"和产物实测情况一致，评分正确"
+    r")，?反馈(?:完全可用|部分可用|完全不可用)。?$"
+)
+_AUDIT_WEAK_WORDS = ("可见", "已记录")
+_AUDIT_CLOSE_RE = re.compile(r"反馈(?:完全可用|部分可用|完全不可用)")
 
 
 def _cfg_rating_rationale(cfg: dict | None = None) -> dict:
@@ -404,12 +414,39 @@ def _platform_words_in_text(text: str) -> list[str]:
     return [word for word in _PLATFORM_WORDS if word in text]
 
 
+def _audit_note_similarity_issues(note: str, audit: str) -> list[str]:
+    """Flag audit reasons that are too close to the longer feedback note."""
+    def compact(text: str) -> str:
+        text = _AUDIT_CLOSE_RE.sub("", text)
+        text = re.sub(r"\d+\s*分", "", text)
+        text = re.sub(r"[，,。；;：:、\s]|标注人|评分|正确|相符|一致|反馈质量为高质量|反馈质量为合格|反馈质量为不合格", "", text)
+        return text
+
+    note_core = compact(note)
+    audit_core = compact(audit)
+    if len(note_core) < 24 or len(audit_core) < 16:
+        return []
+    if audit_core in note_core:
+        return ["audit-too-similar-to-note"]
+    grams = {audit_core[i : i + 2] for i in range(len(audit_core) - 1)}
+    note_grams = {note_core[i : i + 2] for i in range(len(note_core) - 1)}
+    if grams and len(grams & note_grams) / len(grams) >= 0.82:
+        return ["audit-too-similar-to-note"]
+    return []
+
+
 def _shared_rationale_issues(label: str, text: str, vague: tuple[str, ...]) -> list[str]:
     """Return vague-phrase and ambiguous-subject issues for one field."""
     issues: list[str] = []
     for phrase in vague:
         if phrase and phrase in text:
             issues.append(f"{label}-vague-rating-phrase:{phrase}")
+    if label == "audit" and _AUDIT_ONLY_SCORE_RE.fullmatch(text.strip()):
+        issues.append("audit-only-score-consistency")
+    if label == "audit":
+        for phrase in _AUDIT_WEAK_WORDS:
+            if phrase in text:
+                issues.append(f"audit-weak-summary-word:{phrase}")
     if _has_ambiguous_report_subject(text):
         issues.append(f"{label}-ambiguous-report-subject")
     return issues
@@ -467,6 +504,8 @@ def scan_feedback_rating_rationale(
             if phrase in audit:
                 issues.append(f"audit-used-sheet-phrase:{phrase}")
         issues.extend(_shared_rationale_issues("audit", audit, vague))
+        if not prompt_cheat:
+            issues.extend(_audit_note_similarity_issues(note, audit))
         issues.extend(scare_quote_issues(audit))
 
     if rating == "高质量":

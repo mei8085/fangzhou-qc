@@ -31,19 +31,11 @@ from pathlib import Path
 
 from compose_cli import (
     _FONT_CANDIDATES,
-    _LABEL_FONT_CANDIDATES,
     load_font,
     render_panel,
     trim_panel,
 )
-from lib.fonts import CJK_FONT_CANDIDATES
 from PIL import Image
-
-# Prefer CJK-capable faces for Chinese CLI output; fall back to the shared list.
-_CJK_MONO_CANDIDATES = [
-    *CJK_FONT_CANDIDATES,
-    *_FONT_CANDIDATES,
-]
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
@@ -82,7 +74,7 @@ def run_cmd(model_dir: Path, cmd_argv: list[str], timeout: int) -> str:
 def compose_one(sheet_label: str, model_dir: Path, out_dir: Path,
                 script_candidates: list[str], runs: list[tuple[str, str]],
                 timeout: int) -> Path | None:
-    mono = load_font(_CJK_MONO_CANDIDATES, 13)
+    mono = load_font(_FONT_CANDIDATES, 13)
     panel_w, panel_h = 950, 1600
     out_dir.mkdir(parents=True, exist_ok=True)
     tag = sheet_label.replace(" ", "_")

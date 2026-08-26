@@ -144,18 +144,18 @@ _TEXT_HEADER_ALWAYS = [
     "是否是高质量题目",
     "任务质量（题目质量）",
     "题目质量说明",
+    "题目是否可验",
     "题目是否可验证",
     "不可验证原因",
     "分类是否正确",
 ]
 _REDLINE_HEADERS = ["红线问题", "题目红线问题", "题目红线备注"]
-_TEXT_HEADER_TAIL = ["质检人"]
+_TEXT_HEADER_TAIL = []
 _NORMAL_TASK_HEADERS = ["是否正常题目"]
-_SUPPLIER_HEADERS = ["所属商", "所述商"]
+_SUPPLIER_HEADERS = []
 # 期数相关的可选文字列（有就写、没就跳）。
 _TEXT_HEADER_OPTIONAL = [
     "一次质检平台审核理由（按模型）",
-    "一次质检是否完成",
     "0614C对比GLM 5.2 模型差异（轨迹/产物）pattern简述",
     "0614C完成质量实际打分",
     "GLM5.2完成质量打分",
@@ -164,7 +164,10 @@ _TEXT_HEADER_OPTIONAL = [
 ]
 _MODEL_TEXT_SUFFIXES = ["反馈质量（作业质量）", "质量备注", "脏数据标签", "脏数据标签理由"]
 _MODEL_IMAGE_SUFFIX = "验证截图"
-READ_ONLY_HEADERS = {"是否结算"}
+# These fields are owned by the Feishu task dispatcher / human coordinator,
+# not by QC delivery. Never upload them even if local delivery xlsx contains
+# values or a caller passes them via --only-headers.
+READ_ONLY_HEADERS = {"是否结算", "质检人", "所属商", "所述商"}
 
 
 def build_push_targets(local_headers: dict[str, int]) -> tuple[list[str], dict[str, str]]:

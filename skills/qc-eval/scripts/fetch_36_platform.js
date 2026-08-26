@@ -94,7 +94,7 @@ notes:
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
   collect reads task/model rows, per-run evaluation/audit data, 下载列表, workspace zip, and session trajectory JSON.
   After CaseBffV1CrowdtestTaskGet, collect scans the prompt for round-quota cheating. A hit skips workspace/trajectory/download-list.
-  G1-new: search by 任务ID on project 277, then collect the 5 model rows (模型运行 + 下载列表).`);
+  Current period: search by 任务ID on project 281, then collect the 4 model rows (模型运行 + 下载列表).`);
   process.exit(code);
 }
 
@@ -401,7 +401,8 @@ async function fetchDownloadList(ctx, statePath, run, runDir, opts) {
 }
 
 async function discoverDownloadList(opts) {
-  const projectId = Number(opts.project || 277);
+  const cfg = loadG1Config();
+  const projectId = Number(opts.project || (cfg && cfg.project_id) || 281);
   const taskId = opts['task-id'] || opts['sheet-task-id'];
   if (!taskId) usage();
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
@@ -1180,7 +1181,8 @@ async function authLogin(opts) {
 }
 
 async function discoverAuditForm(opts) {
-  const projectId = Number(opts.project || 277);
+  const cfg = loadG1Config();
+  const projectId = Number(opts.project || (cfg && cfg.project_id) || 281);
   const runId = opts['run-id'] || opts['task-model-run-id'] || opts['task-id'];
   if (!runId) usage();
   const statePath = path.resolve(opts.state || DEFAULT_STATE);

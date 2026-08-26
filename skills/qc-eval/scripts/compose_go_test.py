@@ -15,17 +15,11 @@ import re
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw
-
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from lib.fonts import MONO_FONT_CANDIDATES, load_font as _load_font  # noqa: E402
+from compose_cli import _FONT_CANDIDATES, load_font, render_panel as _render_panel, trim_panel  # noqa: E402
 
 REPO_ROOT = HERE.parent.parent.parent
-
-
-def load_font(size: int):
-    return _load_font(MONO_FONT_CANDIDATES, size)
 
 
 def safe_tag(name: str) -> str:
@@ -33,26 +27,8 @@ def safe_tag(name: str) -> str:
 
 
 def render_panel(text: str, out: Path, *, width: int = 1180, height: int = 1320) -> None:
-    font = load_font(15)
-    img = Image.new("RGB", (width, height), "white")
-    draw = ImageDraw.Draw(img)
-    x, y = 18, 18
-    cw = font.getlength("M") if hasattr(font, "getlength") else 9
-    cols = max(40, int((width - x * 2) / cw))
-    line_h = (font.size if hasattr(font, "size") else 15) + 5
-    for raw in text.splitlines():
-        lines = [raw[i:i + cols] for i in range(0, len(raw), cols)] or [""]
-        for line in lines:
-            draw.text((x, y), line, fill="black", font=font)
-            y += line_h
-            if y + line_h > height:
-                break
-        if y + line_h > height:
-            break
-    bg = Image.new("RGB", img.size, "white")
-    bbox = ImageChops.difference(img, bg).getbbox()
-    if bbox:
-        img = img.crop((0, 0, width, min(height, bbox[3] + 28)))
+    font = load_font(_FONT_CANDIDATES, 15)
+    img = trim_panel(_render_panel(text, font, (width, height)))
     out.parent.mkdir(parents=True, exist_ok=True)
     img.save(out)
 

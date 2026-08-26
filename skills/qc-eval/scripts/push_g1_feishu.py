@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Upload a G1-new delivery workbook to Feishu by guarded 任务ID lookup.
+"""Upload the current-period delivery workbook to Feishu by guarded 任务ID lookup.
 
-G1-new uses the local source-sheet `任务ID` as the workspace/delivery directory
+The current workflow uses the local source-sheet `任务ID` as the workspace/delivery directory
 name. The script re-reads the remote sheet, locates the row by `任务ID`, and
 refuses to write unless the remote task title matches the local delivery
 workbook's task title.
 
 Default target:
-  https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=cHr9N5
+  https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=qxj6mW
 
 Usage:
   python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
@@ -135,7 +135,7 @@ def verify_screenshots(task_id: str, skip: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("task_id", help="G1-new 源表「任务ID」，也是 tasks/ 和 delivery/ 子目录名")
+    parser.add_argument("task_id", help="40期源表「任务ID」，也是 tasks/ 和 delivery/ 子目录名")
     parser.add_argument("--wiki-url", default=DEFAULT_WIKI)
     parser.add_argument("--sheet-id", default=DEFAULT_SHEET_ID)
     parser.add_argument("--profile", default=DEFAULT_PROFILE)
@@ -161,10 +161,10 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.sheet_id != DEFAULT_SHEET_ID:
-        print(f"错误：G1-new 只允许上传 sheet={DEFAULT_SHEET_ID}，拒绝 {args.sheet_id}", file=sys.stderr)
+        print(f"错误：当前流程只允许上传 sheet={DEFAULT_SHEET_ID}，拒绝 {args.sheet_id}", file=sys.stderr)
         return 2
     if "sheet=" in args.wiki_url and f"sheet={DEFAULT_SHEET_ID}" not in args.wiki_url:
-        print(f"错误：G1-new 只允许 URL sheet={DEFAULT_SHEET_ID}", file=sys.stderr)
+        print(f"错误：当前流程只允许 URL sheet={DEFAULT_SHEET_ID}", file=sys.stderr)
         return 2
     if args.write and args.dry_run:
         print("错误：--write 和 --dry-run 不能同时使用", file=sys.stderr)

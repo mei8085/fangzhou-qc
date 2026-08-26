@@ -21,21 +21,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from compose_cli import (
     _FONT_CANDIDATES,
-    _LABEL_FONT_CANDIDATES,
     load_font,
     render_panel,
     trim_panel,
 )
-from lib.fonts import CJK_FONT_CANDIDATES
 from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
-
-_CJK_MONO = [
-    *CJK_FONT_CANDIDATES,
-    *_FONT_CANDIDATES,
-]
 
 SMOKE_SECS = 10
 
@@ -145,7 +138,7 @@ def main() -> int:
     out_dir = REPO_ROOT / "delivery" / task_id / "screenshots"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    mono = load_font(_CJK_MONO, 13)
+    mono = load_font(_FONT_CANDIDATES, 13)
     panel_w, panel_h = 900, 1400
 
     for col, info in mm["models"].items():

@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Compare annotator attribution tags with dimension remarks.
 
-Run after collect, before writing qc_cells.json. A defect tag paired with a
-praise-only remark is a wrong-tag issue: feedback quality cannot be 高质量,
-and the QC note must name the tag/remark mismatch.
+Run after collect, before writing qc_cells.json. Selected tags are part of
+the annotator's evaluation and do not need to be repeated in remarks. Only
+explicit tag/remark contradictions are wrong-tag issues: feedback quality
+cannot be 高质量, and the QC note must name the contradiction.
 
 Usage:
     python3 skills/qc-eval/scripts/check_annotator_tags.py <TASK_ID>
     python3 skills/qc-eval/scripts/check_annotator_tags.py --self-test
 
 Exit codes:
-    0  tags and remarks align, or --self-test passed
-    10 task has tag/remark mismatches (print them; QC must cover them)
+    0  no tag/remark contradictions, or --self-test passed
+    10 task has tag/remark contradictions (print them; QC must cover them)
     2  missing inputs or detector self-test failed
 """
 
@@ -61,7 +62,7 @@ def print_model(row: dict) -> None:
         for item in dim.get("mismatches") or []:
             print(f"      [mismatch] {item}")
     if not row.get("mismatches"):
-        print("    标签与备注一致")
+        print("    未发现标签与备注矛盾")
 
 
 def main() -> int:
@@ -99,10 +100,10 @@ def main() -> int:
             for row in models:
                 print_model(row)
             print(f"  wrote {summary.relative_to(REPO_ROOT)}")
-            print("  标签错选不能定高质量；质量备注必须点名标签与备注不符。")
+            print("  标签与备注矛盾不能定高质量；质量备注必须点名不符之处。")
             worst = EXIT_MISMATCH
         else:
-            print(f"  [OK]  {task_id}  tags match remarks")
+            print(f"  [OK]  {task_id}  no tag/remark contradictions")
             write_summary(task_id, models)
     return worst
 

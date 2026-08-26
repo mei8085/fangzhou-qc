@@ -138,7 +138,7 @@ FORBIDDEN_WORDS = [
     "——", "—",
     "【", "】", "「", "」", "『", "』",
     # 把模型称作"这家"/"四家"是口语错觉（像在评供应商）。规范统一写作
-    # "这个模型"/"该模型"/"5 个模型"。
+    # "这个模型"/"该模型"/"多个模型"。
     "这家", "那家", "几家", "两家", "三家", "四家", "五家",
     # "封顶"是方舟平台打分时的内部勾选项名，对题面下游 reviewer 不通用，
     # 备注里要翻译成"认为核心功能不可用 / 严重问题"这种白话。
@@ -194,6 +194,24 @@ TASK_NOTE_FORBIDDEN_PATTERNS = [
     (re.compile(r"是否是高质量题目.{0,20}填"), "task-note-no-high-quality-field-self-description"),
     (re.compile(r"填[“\"]?[是否][”\"]?"), "task-note-no-field-fill-instruction"),
 ]
+
+# 复测不能把质检机本地缺依赖当作模型产物缺陷。备注里如果出现典型本地
+# 环境失败信号，必须同时说明已经补齐环境并重跑后的结果。
+LOCAL_ENV_FAILURE_RE = re.compile(
+    r"(?:本地|测试机?|质检机?).{0,8}(?:环境|依赖).{0,12}(?:缺少|缺失|未安装|没装|失败|不可用)|"
+    r"(?:缺少|缺失|未安装|没装).{0,12}(?:依赖|环境|Playwright|Chromium|Electron|node_modules)|"
+    r"(?:command not found|Cannot find module|ModuleNotFoundError|No module named|"
+    r"No matching version found|Electron failed to install|Playwright .*browser|"
+    r"(?:vite|tsc|vitest|playwright): command not found)",
+    re.IGNORECASE,
+)
+ENV_RECHECK_RE = re.compile(
+    r"(?:环境|依赖|Playwright|Chromium|Electron).{0,16}(?:补齐|补装|安装|重装|修复|恢复)|"
+    r"(?:补齐|补装|安装|重装|修复|恢复).{0,16}(?:环境|依赖|Playwright|Chromium|Electron)|"
+    r"(?:npm|pnpm|yarn|pip|playwright|electron).{0,24}(?:install|安装)|"
+    r"(?:重跑|复跑|重新(?:验证|测试|运行)|安装后|补齐后)",
+    re.IGNORECASE,
+)
 
 # 红线必须有明确证据；出现这类模糊措辞时按"疑罪从无"拦下。
 VAGUE_REDLINE_EVIDENCE = re.compile(
@@ -606,6 +624,25 @@ def feedback_rating_rationale_issues(
     return bad
 
 
+def local_env_dependency_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]:
+    """Block conclusions that treat unremediated local dependency failures as product bugs."""
+    bad: dict[int, list[str]] = {}
+    cols: set[int] = set()
+    _, model_note_cols = reviewer_columns(headers)
+    cols.update(c for c in model_note_cols if c)
+    for header in ("不可验证原因", _PLATFORM_AUDIT_HEADER):
+        col = headers.get(header)
+        if col:
+            cols.add(col)
+    for col in sorted(cols):
+        text = cell_text(ws, col)
+        if not text:
+            continue
+        if LOCAL_ENV_FAILURE_RE.search(text) and not ENV_RECHECK_RE.search(text):
+            bad.setdefault(col, []).append("local-env-dependency-not-rechecked")
+    return bad
+
+
 def annotator_tag_qc_issues(
     ws,
     headers: dict[str, int],
@@ -737,6 +774,8 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
     for col, issues in feedback_rating_rationale_issues(
         ws, headers, qc, prompt_cheat=prompt_cheat
     ).items():
+        bad.setdefault(col, []).extend(issues)
+    for col, issues in local_env_dependency_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in annotator_tag_qc_issues(
         ws, headers, qc, task_id, prompt_cheat=prompt_cheat

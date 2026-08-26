@@ -294,7 +294,8 @@ def render(task_id: str, qc: dict, model_map: dict | None = None) -> str:
     if task_title:
         lines.append(f"任务：{task_title}")
         lines.append("")
-    lines.append("页面：每个模型打开 `projects/277/review/<taskModelRunId>?mode=audit`，右侧切到「质检」。")
+    project_id = (load_g1_config() or {}).get("project_id") or 281
+    lines.append(f"页面：每个模型打开 `projects/{project_id}/review/<taskModelRunId>?mode=audit`，右侧切到「质检」。")
     lines.append("字段名与选项与 `skills/qc-eval/config/g1_audit_form.json` 一致。")
     lines.append("")
     lines.append("## 通用 · 请选择该任务的质量")

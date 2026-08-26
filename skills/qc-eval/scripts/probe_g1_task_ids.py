@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Probe G1-new tasks from the local source xlsx (docs/G1-new.xlsx).
+"""Probe current-period tasks from the local source xlsx (docs/40.xlsx).
 
-G1-new does not sync the QC working set from Feishu. The local workbook is
-the source of truth; Feishu sheet=cHr9N5 is only the delivery target.
+The workflow does not sync the QC working set from Feishu. The local workbook
+is the source of truth; Feishu is only the delivery target.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def main() -> int:
 
     source = Path(args.source)
     if not source.exists():
-        print(f"ERROR: G1-new 源表不存在: {source}", file=sys.stderr)
+        print(f"ERROR: 40期源表不存在: {source}", file=sys.stderr)
         return 2
 
     sheet_title, header_row, headers, rows = load_rows(source, args.sheet)
@@ -101,7 +101,7 @@ def main() -> int:
         "platform_map": CODE_TO_PLATFORM,
         "task_rows": rows,
         "target_matches": matches,
-        "workspace_id_rule": "use local source 任务ID; same ID is used to search Ark project 277",
+        "workspace_id_rule": "use local source 任务ID; same ID is used to search Ark project 281",
     }
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +111,7 @@ def main() -> int:
     print(f"task rows={len(rows)}")
     print("models:")
     for code, platform in CODE_TO_PLATFORM.items():
-        print(f"  {code}/{platform} -> 【G1】{code}")
+        print(f"  {code}/{platform} -> {code}")
     if args.task_id or args.task_title:
         print(f"target matches={len(matches)}")
         if not matches:
