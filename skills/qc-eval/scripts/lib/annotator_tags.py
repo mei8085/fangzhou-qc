@@ -50,6 +50,10 @@ DEFECT_TAGS = {
 
 TAG_ISSUE_IN_NOTE = re.compile(r"标签|错选")
 BRACKET_TAG = re.compile(r"^【([^】]+)】")
+SELFTEST_INSUFFICIENT_RE = re.compile(r"(?:自测|测试|验证).{0,12}(?:不充分|不够充分|不足|遗漏)")
+PREFIX_COMPATIBLE_TAGS = {
+    "任务跑偏": {"指令不遵循"},
+}
 
 
 def load_json(path: Path) -> Any:
@@ -103,7 +107,7 @@ def mismatch_reasons(tag_name: str, remark: str) -> list[str]:
     reasons: list[str] = []
     if tag not in DEFECT_TAGS:
         return reasons
-    if tag == "自测不充分" and "充分" in body and "不充分" not in body:
+    if tag == "自测不充分" and "充分" in body and not SELFTEST_INSUFFICIENT_RE.search(body):
         reasons.append("tag-selftest-insufficient-but-remark-sufficient")
     if tag == "模型遗漏或遗忘" and _has_any(body, ("完整", "能展示")) and not _has_any(
         body, ("遗漏", "遗忘", "缺失", "未实现", "没入口", "没有入口", "不完整", "漏判", "漏掉", "没把")
@@ -143,7 +147,7 @@ def parse_evaluation(payload: dict) -> list[dict]:
         issues: list[str] = []
         if prefix and not tags:
             issues.append("remark-has-tag-prefix-but-no-selected-tag")
-        elif prefix and prefix not in tags:
+        elif prefix and prefix not in tags and not (PREFIX_COMPATIBLE_TAGS.get(prefix, set()) & set(tags)):
             issues.append(f"remark-prefix-is-{prefix}-not-selected")
         for tag in tags:
             for item in mismatch_reasons(tag, remark):

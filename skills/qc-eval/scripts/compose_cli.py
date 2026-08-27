@@ -24,8 +24,14 @@ unrecorded product issue), do not rerun this script for the whole task: it
 overwrites every model's `_01_cli.png`. Render an extra numbered PNG with
 `render_extra_command_png`, then run `compose.py`.
 
+If the annotator attached browser/page screenshots and the extracted artifact
+contains a runnable frontend, this script first asks screenshot_vue.js to capture
+the model's own page. The final verify composite then includes both live web UI
+evidence and terminal/test evidence.
+
 Usage:
     compose_cli.py <TASK_ID> [--report-file reports/rollout-risk.md]
+    compose_cli.py <TASK_ID> --no-web-from-attachments
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ from lib.fonts import (  # noqa: E402
 from PIL import Image, ImageDraw, ImageChops
 
 REPO_ROOT = HERE.parent.parent.parent
+MAX_TERMINAL_PANEL_WIDTH = int(os.environ.get("QC_TERMINAL_PANEL_MAX_WIDTH", "1280"))
 
 # CLI evidence is ASCII-heavy. CJK proportional faces (PingFang etc.) make
 # digits such as 4 lose the crossbar; use Menlo/Consolas for terminal panels.
@@ -233,13 +240,16 @@ def strip_extracted_paths(text: str, model_dir: Path) -> str:
     return text
 
 
-def render_text_png(text: str, out_path: Path, *, font_size: int = 13) -> Image.Image:
+def render_text_png(text: str, out_path: Path, *, font_size: int = 13, max_width: int = MAX_TERMINAL_PANEL_WIDTH) -> Image.Image:
     """Render terminal text with mono ASCII and CJK fallback for Chinese logs."""
     font = load_font(_FONT_CANDIDATES, font_size)
     fallback = load_font(_LABEL_FONT_CANDIDATES, font_size)
     cleaned = clean_terminal_text(text)
     longest = max((_mixed_text_width(ln, font, fallback) for ln in cleaned.splitlines() if ln), default=800)
-    panel_w = max(800, int(longest) + 40)
+    # Long pytest traces and Vite asset lists used to produce 3k+ px panels.
+    # Cap the panel width and rely on pixel-aware wrapping so composites stay
+    # readable beside web screenshots.
+    panel_w = max(800, min(max_width, int(longest) + 40))
     line_h = font.size + 4 if hasattr(font, "size") else 14
     max_w = panel_w - 32
     n_lines = sum(max(1, len(wrap_to_width(ln, font, max_w, fallback))) for ln in cleaned.splitlines()) or 1
@@ -269,6 +279,92 @@ def render_extra_command_png(
     )
     render_text_png(text, out_path, font_size=font_size)
     return text
+
+
+def _png_size(path: Path) -> tuple[int, int] | None:
+    try:
+        with path.open("rb") as f:
+            header = f.read(24)
+        if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
+            return None
+        return int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big")
+    except OSError:
+        return None
+
+
+def _image_size(path: Path) -> tuple[int, int] | None:
+    if path.suffix.lower() == ".png":
+        return _png_size(path)
+    try:
+        with Image.open(path) as im:
+            return im.size
+    except Exception:
+        return None
+
+
+def _looks_like_web_attachment(path: Path) -> bool:
+    """Heuristic gate for annotator browser screenshots.
+
+    We intentionally keep this conservative: large landscape/desktop captures
+    or tall app-page captures should trigger frontend evidence, while small
+    icons/log snippets should not.
+    """
+    size = _image_size(path)
+    if not size:
+        return False
+    w, h = size
+    if w < 900 or h < 600:
+        return False
+    ratio = w / max(h, 1)
+    return 0.55 <= ratio <= 3.2
+
+
+def annotator_has_web_screenshots(task_id: str) -> bool:
+    base = REPO_ROOT / "tasks" / task_id / "ark_g1"
+    if not base.exists():
+        return False
+    for p in base.glob("*/evaluation_attachments/*"):
+        if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} and _looks_like_web_attachment(p):
+            return True
+    return False
+
+
+def _has_frontend_entry(model_dir: Path) -> bool:
+    cands = [
+        model_dir / "package.json",
+        model_dir / "frontend" / "package.json",
+        model_dir / "frontend" / "web" / "package.json",
+    ]
+    return any(p.exists() for p in cands)
+
+
+def any_model_has_frontend(task_id: str, mm: dict) -> bool:
+    task_dir = REPO_ROOT / "tasks" / task_id
+    return any(_has_frontend_entry(task_dir / "extracted" / info["code"]) for info in mm["models"].values())
+
+
+def maybe_capture_web_from_attachments(task_id: str, mm: dict, *, enabled: bool) -> None:
+    if not enabled:
+        return
+    if not annotator_has_web_screenshots(task_id):
+        return
+    if not any_model_has_frontend(task_id, mm):
+        return
+    log_dir = REPO_ROOT / "tasks" / task_id / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "_frontend_from_attachments.log"
+    script = HERE / "screenshot_vue.js"
+    cmd = ["node", str(script), task_id, "--if-annotator-web", "--keep-existing"]
+    try:
+        r = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=300)
+        log_path.write_text((r.stdout or "") + (r.stderr or ""), encoding="utf-8")
+        if r.returncode != 0:
+            print(f"   [web-screenshot] failed; see {log_path.relative_to(REPO_ROOT)}", file=sys.stderr)
+        else:
+            print(f"   [web-screenshot] captured from annotator web-page signal")
+    except Exception as e:
+        log_path.write_text(f"<failed to run {' '.join(cmd)}: {e}>", encoding="utf-8")
+        print(f"   [web-screenshot] failed; see {log_path.relative_to(REPO_ROOT)}", file=sys.stderr)
 
 
 def wrap_to_width(line: str, font, max_w: int, fallback_font=None) -> list[str]:
@@ -387,6 +483,11 @@ def main() -> int:
     p.add_argument("task_id")
     p.add_argument("--tasks-dir", default=str(REPO_ROOT / "tasks"))
     p.add_argument("--report-file", default="reports/rollout-risk.md")
+    p.add_argument(
+        "--no-web-from-attachments",
+        action="store_true",
+        help="不要因标注人附件里有网页截图而额外运行前端截图",
+    )
     args = p.parse_args()
 
     tasks_dir = Path(args.tasks_dir)
@@ -396,6 +497,7 @@ def main() -> int:
         print(f"ERROR: {map_path} not found", file=sys.stderr)
         return 2
     mm = json.loads(map_path.read_text(encoding="utf-8"))
+    maybe_capture_web_from_attachments(args.task_id, mm, enabled=not args.no_web_from_attachments)
 
     out_dir = REPO_ROOT / "delivery" / args.task_id / "screenshots"
     for col, info in mm["models"].items():

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // For each model declared in tasks/<TASK_ID>/model_map.json, spin up the model's
-// own vite dev server (in the entry directory given by model_map) and capture
-// real-app screenshots — never reuse the labeler's evidence.
+// own vite dev server (in the entry directory given by model_map or a detected
+// frontend directory) and capture real-app screenshots — never reuse the
+// labeler's evidence.
 //
 // Captured states (per model):
 //   01_initial      — main page after first paint
@@ -14,6 +15,7 @@
 // Usage:
 //   node screenshot_vue.js <TASK_ID> [--only <COL>]
 //                          [--base-port 5173] [--keep-existing]
+//                          [--if-annotator-web]
 
 const { chromium } = require('playwright');
 const { spawn, spawnSync } = require('child_process');
@@ -30,17 +32,18 @@ const SKILL_DIR = path.resolve(HERE, '..');
 const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..');
 
 function parseArgs(argv) {
-  const out = { id: null, only: null, basePort: 5173, keep: false, printSteps: false };
+  const out = { id: null, only: null, basePort: 5173, keep: false, printSteps: false, ifAnnotatorWeb: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--only') out.only = argv[++i];
     else if (a === '--base-port') out.basePort = parseInt(argv[++i], 10);
     else if (a === '--keep-existing') out.keep = true;
     else if (a === '--print-steps') out.printSteps = true;
+    else if (a === '--if-annotator-web') out.ifAnnotatorWeb = true;
     else out.id = a;
   }
   if (!out.id) {
-    console.error('usage: screenshot_vue.js <TASK_ID> [--only COL] [--base-port 5173] [--keep-existing] [--print-steps]');
+    console.error('usage: screenshot_vue.js <TASK_ID> [--only COL] [--base-port 5173] [--keep-existing] [--print-steps] [--if-annotator-web]');
     process.exit(2);
   }
   return out;
@@ -87,6 +90,65 @@ function sanitize(s) { return s.replace(/ /g, '_'); }
 
 function stripAnsi(s) { return s.replace(/\x1b\[[0-9;]*m/g, ''); }
 
+function pngSize(file) {
+  try {
+    const b = fs.readFileSync(file);
+    if (b.length < 24) return null;
+    if (b.slice(0, 8).compare(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) !== 0) return null;
+    if (b.slice(12, 16).toString('ascii') !== 'IHDR') return null;
+    return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  } catch {
+    return null;
+  }
+}
+
+function looksLikeWebAttachment(file) {
+  const size = pngSize(file);
+  if (!size) return false;
+  const { width, height } = size;
+  if (width < 900 || height < 600) return false;
+  const ratio = width / Math.max(height, 1);
+  return ratio >= 0.55 && ratio <= 3.2;
+}
+
+function modelHasWebAttachment(taskDir, platformCode) {
+  const arkDir = path.join(taskDir, 'ark_g1');
+  if (!fs.existsSync(arkDir)) return false;
+  for (const runDir of fs.readdirSync(arkDir)) {
+    if (!runDir.includes(`__${platformCode}`)) continue;
+    const attachDir = path.join(arkDir, runDir, 'evaluation_attachments');
+    if (!fs.existsSync(attachDir)) continue;
+    for (const name of fs.readdirSync(attachDir)) {
+      if (/\.png$/i.test(name) && looksLikeWebAttachment(path.join(attachDir, name))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function resolveEntryDir(taskDir, info) {
+  const base = path.join(taskDir, 'extracted', info.code);
+  const explicit = info.entry || '.';
+  const cands = [];
+  cands.push(path.join(base, explicit));
+  cands.push(base);
+  cands.push(path.join(base, 'frontend'));
+  cands.push(path.join(base, 'frontend', 'web'));
+  // Some full-stack artifacts are symlinked to backend/ for Python tests; the
+  // frontend lives next to backend in the original repo.
+  cands.push(path.join(base, '..', 'frontend'));
+  cands.push(path.join(base, '..', 'frontend', 'web'));
+  const seen = new Set();
+  for (const c of cands) {
+    const normalized = path.resolve(c);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    if (fs.existsSync(path.join(normalized, 'package.json'))) return normalized;
+  }
+  return path.resolve(path.join(base, explicit));
+}
+
 async function waitForViteUrl(child, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
     let buf = '';
@@ -128,6 +190,12 @@ function killTree(pid) {
   }
 }
 
+function packageRunner(entryDir) {
+  if (fs.existsSync(path.join(entryDir, 'pnpm-lock.yaml'))) return { bin: 'pnpm', install: 'pnpm install --frozen-lockfile', run: 'pnpm run dev' };
+  if (fs.existsSync(path.join(entryDir, 'yarn.lock'))) return { bin: 'yarn', install: 'yarn install --frozen-lockfile', run: 'yarn dev' };
+  return { bin: 'npm', install: 'npm install --prefer-offline --no-audit --no-fund --loglevel=error', run: 'npm run dev' };
+}
+
 function ensureViteBin(entryDir) {
   // The tarball's node_modules ships dependency code but no .bin shims (Linux
   // symlinks were skipped during extraction on Windows). Run `npm install` once
@@ -136,18 +204,20 @@ function ensureViteBin(entryDir) {
     ? path.join(entryDir, 'node_modules', '.bin', 'vite.cmd')
     : path.join(entryDir, 'node_modules', '.bin', 'vite');
   if (fs.existsSync(viteShim)) return;
-  console.log(`     [bin] no vite shim at ${viteShim} — running npm install (one-time)`);
-  const r = spawnSync('npm install --prefer-offline --no-audit --no-fund --loglevel=error', {
+  const pm = packageRunner(entryDir);
+  console.log(`     [bin] no vite shim at ${viteShim} — running ${pm.install} (one-time)`);
+  const r = spawnSync(pm.install, {
     cwd: entryDir, shell: true, stdio: 'inherit',
   });
-  if (r.status !== 0) throw new Error(`npm install failed in ${entryDir}`);
+  if (r.status !== 0) throw new Error(`${pm.install} failed in ${entryDir}`);
 }
 
 async function startDevServer(entryDir, port) {
   ensureViteBin(entryDir);
   // Need shell:true on Windows because npm is a .cmd shim — Node 20+ requires
   // shell:true to spawn it. The shell also handles `--` argument passthrough.
-  const cmd = `npm run dev -- --port ${port} --strictPort`;
+  const pm = packageRunner(entryDir);
+  const cmd = `${pm.run} -- --port ${port} --strictPort`;
   console.log(`     starting "${cmd}" in ${entryDir}`);
   const child = spawn(cmd, {
     cwd: entryDir,
@@ -189,8 +259,8 @@ async function screenshotModel(browser, label, code, entryDir, outDir, port, kee
   const cartAddPng = path.join(outDir, `${tag}_02_cart_added.png`);
   const cartOpenPng = path.join(outDir, `${tag}_03_cart_open.png`);
 
-  if (keep && fs.existsSync(initialPng) && fs.existsSync(cartAddPng) && fs.existsSync(cartOpenPng)) {
-    console.log(`   [skip] ${label} (${code}): all 3 PNGs exist`);
+  if (keep && fs.existsSync(initialPng)) {
+    console.log(`   [skip] ${label} (${code}): ${path.basename(initialPng)} exists`);
     return { skipped: true, initialPng, cartAddPng, cartOpenPng };
   }
 
@@ -364,9 +434,12 @@ async function main() {
   let port = args.basePort;
   for (const [col, info] of Object.entries(map.models)) {
     if (args.only && col !== args.only) continue;
-    const entry = info.entry || '.';
-    const entryDir = path.join(taskDir, 'extracted', info.code, entry);
-    console.log(`==> ${col} (${info.code})  entry=${entry}`);
+    if (args.ifAnnotatorWeb && !modelHasWebAttachment(taskDir, info.platform || info.code)) {
+      console.log(`==> ${col} (${info.code})  skipped (no web-like annotator attachment)`);
+      continue;
+    }
+    const entryDir = resolveEntryDir(taskDir, info);
+    console.log(`==> ${col} (${info.code})  entry=${path.relative(path.join(taskDir, 'extracted', info.code), entryDir) || '.'}`);
     if (!fs.existsSync(path.join(entryDir, 'package.json'))) {
       console.error(`   [skip] no package.json at ${entryDir}`);
       continue;

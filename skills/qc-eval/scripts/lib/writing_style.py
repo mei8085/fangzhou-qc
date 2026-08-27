@@ -342,6 +342,62 @@ _ARTIFACT_SCORE_VERDICT_RE = re.compile(
     r"产物(?:质量)?\s*\d+\s*分.{0,24}(?:偏高|偏低|相符|合理)"
 )
 
+_PROCESS_GAP_RE = re.compile(
+    r"(?:执行过程|过程)\s*\d+\s*分[^。；;，,、]{0,24}(?:偏高|偏低)|"
+    r"(?:偏高|偏低)[^。；;，,、]{0,24}(?:执行过程|过程)\s*\d+\s*分"
+)
+_PROCESS_EVIDENCE_RE = re.compile(
+    r"模型执行|执行过程(?:中|里|实际)|轨迹|工具(?:调用)?|调用|需求理解|规划|"
+    r"拆解|定位|排查|修改|修复|调试|自测|测试|检查|构建|迭代|"
+    r"重试|恢复|中断|卡住|报错|过早宣称|耗时|效率|完成任务|交付|"
+    r"命令|token|轮次|多轮|过程标签|过程备注|标注人备注"
+)
+_PRODUCT_ONLY_CONTEXT_RE = re.compile(
+    r"页面|主页面|界面|按钮|控件|路由|功能|章节|小节|主链路|业务链路|"
+    r"响应式|加载|打开|可运行|能运行|能打开|白屏|遮挡|布局|交互|接口|"
+    r"产物|交付物|截图"
+)
+
+
+def _process_score_rationale_issues(label: str, text: str) -> list[str]:
+    """执行过程分偏高/偏低必须用模型执行过程证据解释。
+
+    Product/runtime facts such as page flow or UI availability belong to the
+    artifact-quality score. If a note says the execution-process score is high
+    or low but the local sentence only cites product facts, reviewers cannot see
+    what was wrong with the model's task-solving process.
+    """
+    blob = str(text or "")
+    issues: list[str] = []
+    for match in _PROCESS_GAP_RE.finditer(blob):
+        start, end = match.span()
+        left = max(
+            blob.rfind("。", 0, start),
+            blob.rfind("；", 0, start),
+            blob.rfind(";", 0, start),
+            blob.rfind("\n", 0, start),
+        )
+        right_candidates = [
+            pos
+            for pos in (
+                blob.find("。", end),
+                blob.find("；", end),
+                blob.find(";", end),
+                blob.find("\n", end),
+            )
+            if pos != -1
+        ]
+        right = min(right_candidates) if right_candidates else len(blob)
+        sentence = blob[left + 1:right]
+        context = blob[max(0, left - 80):right]
+        if _PROCESS_EVIDENCE_RE.search(context):
+            continue
+        if _PRODUCT_ONLY_CONTEXT_RE.search(sentence) or _PRODUCT_ONLY_CONTEXT_RE.search(context):
+            issues.append(f"{label}-process-score-gap-needs-model-execution-rationale")
+        else:
+            issues.append(f"{label}-process-score-gap-rationale-too-thin")
+    return issues
+
 
 def _score_clarity_issues(note: str) -> list[str]:
     """合格备注列出过程分或产物分时，必须写清偏高、偏低或相符。"""
@@ -491,6 +547,7 @@ def scan_feedback_rating_rationale(
         for word in _platform_words_in_text(note):
             issues.append(f"note-used-platform-word:{word}")
         issues.extend(_shared_rationale_issues("note", note, vague))
+        issues.extend(_process_score_rationale_issues("note", note))
         issues.extend(scare_quote_issues(note))
 
     if not audit:
@@ -504,6 +561,7 @@ def scan_feedback_rating_rationale(
             if phrase in audit:
                 issues.append(f"audit-used-sheet-phrase:{phrase}")
         issues.extend(_shared_rationale_issues("audit", audit, vague))
+        issues.extend(_process_score_rationale_issues("audit", audit))
         if not prompt_cheat:
             issues.extend(_audit_note_similarity_issues(note, audit))
         issues.extend(scare_quote_issues(audit))

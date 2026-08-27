@@ -214,6 +214,28 @@ ENV_RECHECK_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 标注人备注若带有明确环境线索，而质检复测环境不同或未确认相同环境，
+# 不能直接否定标注人的失败归因；必须写成“本次环境未复现/无法排除环境差异”。
+ANNOTATOR_ENV_MARKER_RE = re.compile(
+    r"Windows|macOS|Mac\s?OS|Linux|Ubuntu|CI|Docker|Chromium|Chrome|"
+    r"Playwright|Node(?:\.js)?\s*\d|Python\s*\d|C:\\|C:/|Program Files|"
+    r"PATH|shell|端口|localhost|127\.0\.0\.1|本地环境|测试机|浏览器版本|"
+    r"空格路径|大小写敏感|换行符",
+    re.IGNORECASE,
+)
+ASSERTIVE_ENV_MISMATCH_RE = re.compile(
+    r"(?:标注人?(?:记录|备注|写|认为)?.{0,60}(?:E2E|Playwright|测试|构建|启动|运行|报错|失败|Failed to fetch).{0,40}(?:不符|不一致|错误|错))|"
+    r"(?:(?:失败|原因|理由|归因|记录).{0,24}(?:不符|不一致|错误|错))|"
+    r"(?:与(?:实测|实际情况|验证结果)不符)",
+    re.IGNORECASE,
+)
+ENV_DIFF_CAUTION_RE = re.compile(
+    r"本次环境|当前环境|本轮环境|本次复测环境|未复现|结果不同|无法排除环境差异|"
+    r"不能排除环境差异|可能存在环境差异|环境差异|未在.{0,12}(?:Windows|macOS|Linux|CI|Docker)|"
+    r"(?:同环境|相同环境).{0,16}(?:复测|验证|复现)|结论(?:仍)?可采信|仅部分可采信",
+    re.IGNORECASE,
+)
+
 # 红线必须有明确证据；出现这类模糊措辞时按"疑罪从无"拦下。
 VAGUE_REDLINE_EVIDENCE = re.compile(
     r"疑似|可能|不确定|不好说|无法确认|猜测|推测|大概|也许|似乎|像是|感觉"
@@ -657,6 +679,64 @@ def local_env_dependency_issues(ws, headers: dict[str, int]) -> dict[int, list[s
     return bad
 
 
+def annotator_environment_attribution_issues(
+    ws,
+    headers: dict[str, int],
+    qc: dict | None,
+    task_id: str,
+) -> dict[int, list[str]]:
+    """Block overconfident contradiction claims when annotator env differs.
+
+    If the annotator explicitly names an environment-sensitive context
+    (Windows, CI, Docker, Playwright version, local ports, path format, etc.),
+    a QC note may say the current run did not reproduce the failure, but it
+    must not directly call the annotator's failure reason wrong unless the note
+    also documents same-environment proof or environment-difference caution.
+    """
+    if not task_id:
+        return {}
+    rows = iter_model_evaluations(task_id)
+    if not rows:
+        return {}
+    qc_models = ((qc or {}).get("sheet") or {}).get("models") or {}
+    combined = cell_text(ws, headers.get(_PLATFORM_AUDIT_HEADER))
+    note_cols = {model: note_col for model, _, note_col in model_rating_note_cols(headers)}
+    bad: dict[int, list[str]] = {}
+
+    for row in rows:
+        sheet = str(row.get("sheet") or "")
+        annotator_text = " ".join(
+            str(part or "")
+            for dim in row.get("dimensions") or []
+            for part in (dim.get("remark"), dim.get("overall_remark"))
+        )
+        if not ANNOTATOR_ENV_MARKER_RE.search(annotator_text):
+            continue
+
+        note_col = note_cols.get(sheet)
+        note = cell_text(ws, note_col) if note_col else ""
+        data = qc_models.get(sheet) or {}
+        audit = str(
+            data.get("platform_audit_reason") or data.get("audit_reason") or ""
+        ).strip() or audit_line_for_model(combined, sheet)
+
+        for label, text, target_col in (
+            ("note", note, note_col),
+            ("audit", audit, headers.get(_PLATFORM_AUDIT_HEADER)),
+        ):
+            if not text:
+                continue
+            if not ASSERTIVE_ENV_MISMATCH_RE.search(text):
+                continue
+            if ENV_DIFF_CAUTION_RE.search(text):
+                continue
+            if target_col:
+                bad.setdefault(target_col, []).append(
+                    f"{label}-env-diff-overconfident-annotator-mismatch"
+                )
+    return bad
+
+
 def annotator_tag_qc_issues(
     ws,
     headers: dict[str, int],
@@ -793,6 +873,10 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
         bad.setdefault(col, []).extend(issues)
     for col, issues in local_env_dependency_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
+    for col, issues in annotator_environment_attribution_issues(
+        ws, headers, qc, task_id
+    ).items():
+        bad.setdefault(col, []).extend(issues)
     for col, issues in annotator_tag_qc_issues(
         ws, headers, qc, task_id, prompt_cheat=prompt_cheat
     ).items():
@@ -803,6 +887,16 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
 def writing_template_issues() -> list[str]:
     """Canned examples in writing_style.json and cheat notes must pass rationale rules."""
     issues = opening_family_example_issues()
+    bad_process_note = (
+        "复测显示页面流程、章节加载和响应式验证均通过，"
+        "标注人给执行过程 7 分偏低，反馈质量为合格。"
+    )
+    bad_process_audit = "页面流程通过，执行过程 7 分偏低，反馈部分可用。"
+    bad_process_issues = scan_feedback_rating_rationale(
+        bad_process_note, bad_process_audit, "合格"
+    )
+    if not any("process-score-gap" in item for item in bad_process_issues):
+        issues.append("process-score-scope-guard-missing")
     for item in annotator_tag_self_test():
         issues.append(f"annotator-tag-detector:{item}")
     _, specs = build_notes("工具轮次达到 450")
