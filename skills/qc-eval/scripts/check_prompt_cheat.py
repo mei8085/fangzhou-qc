@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Scan the collected task prompt for tool-round quota cheating.
+"""Scan the visible task prompt and uploaded text for round-quota cheating.
 
-Run this immediately after fetch_g1_platform.js writes task.json, before any
-product retest. QC does not count trajectory rounds; it only checks whether
-the prompt tells the model to reach a round quota.
+Run this after fetch_g1_platform.js has collected the first Prompt's
+"上传产物", before any product retest. QC does not count trajectory rounds; it
+only checks whether the visible prompt or uploaded Markdown/text tells the
+model to reach a round quota.
 
 Usage:
     python3 skills/qc-eval/scripts/check_prompt_cheat.py <TASK_ID>
@@ -219,6 +220,79 @@ def write_prompt_files(task_dir: Path, prompt: str, report: dict[str, Any]) -> N
     write_json(task_dir / "prompt_cheat.json", report)
 
 
+def task_attachments(payload: Any) -> list[dict[str, Any]]:
+    """Return first-round uploads reported by CaseBffV1CrowdtestTaskGet."""
+    if not isinstance(payload, dict):
+        return []
+    value = payload.get("attachments")
+    if value is None and isinstance(payload.get("task"), dict):
+        value = payload["task"].get("attachments")
+    return value if isinstance(value, list) else []
+
+
+def uploaded_prompt_materials(task_json: Path, payload: Any) -> list[dict[str, Any]]:
+    """Load inspected Markdown/text from first-round task uploads.
+
+    If Ark reports uploads, missing or incomplete collection is a hard stop;
+    otherwise the prompt gate could silently ignore the user's real prompt.
+    """
+    ark_dir = task_json.parent
+    manifest_path = ark_dir / "task_uploads.json"
+    reported = task_attachments(payload)
+    if not manifest_path.exists():
+        if reported:
+            raise FileNotFoundError(
+                f"{manifest_path.relative_to(REPO_ROOT)} 不存在，但 task.json 报告了 "
+                f"{len(reported)} 个首轮上传产物；重新运行 fetch_g1_platform.js collect"
+            )
+        return []
+
+    manifest = load_json(manifest_path)
+    if manifest.get("status") != "complete":
+        raise ValueError(
+            f"首轮上传产物未完整采集：{manifest_path.relative_to(REPO_ROOT)} "
+            f"status={manifest.get('status')!r}"
+        )
+    if int(manifest.get("reported_count") or 0) != len(manifest.get("items") or []):
+        raise ValueError("首轮上传产物清单数量不一致，停止提示词检查")
+    if reported and int(manifest.get("reported_count") or 0) != len(reported):
+        raise ValueError("task.json 与首轮上传产物清单数量不一致，重新采集后再质检")
+
+    materials_path = ark_dir / str(manifest.get("prompt_materials_path") or "task_prompt_materials.json")
+    if not materials_path.exists():
+        raise FileNotFoundError(f"首轮上传文本索引缺失：{materials_path.relative_to(REPO_ROOT)}")
+    indexed = load_json(materials_path)
+    materials = indexed.get("materials") or []
+    if int(indexed.get("material_count") or 0) != len(materials):
+        raise ValueError("首轮上传文本索引数量不一致，停止提示词检查")
+    return materials
+
+
+def combined_prompt(task_json: Path, payload: Any) -> tuple[str, list[dict[str, Any]]]:
+    """Combine the page prompt with inspected uploaded Markdown/text."""
+    visible = extract_prompt_text(payload)
+    materials = uploaded_prompt_materials(task_json, payload)
+    sections: list[str] = []
+    sources: list[dict[str, Any]] = []
+    if visible:
+        sections.append("# 平台首轮 Prompt\n\n" + visible)
+        sources.append({"kind": "visible_prompt", "source": str(task_json.relative_to(REPO_ROOT))})
+    for item in materials:
+        source = str(item.get("source") or item.get("source_file") or "uploaded text")
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        sections.append(f"# 首轮上传产物文本：{source}\n\n{text}")
+        sources.append({
+            "kind": "task_upload_text",
+            "source": source,
+            "occurrence_count": item.get("occurrence_count", 1),
+            "size_bytes": item.get("size_bytes"),
+            "sha256": item.get("sha256"),
+        })
+    return "\n\n---\n\n".join(sections), sources
+
+
 def render_screenshots(task_id: str, prompt_path: Path, hits: list[dict[str, Any]]) -> int:
     """Render one red-boxed prompt screenshot and copy it to every model."""
     lines = prompt_path.read_text(encoding="utf-8").splitlines() or [""]
@@ -267,7 +341,7 @@ def render_screenshots(task_id: str, prompt_path: Path, hits: list[dict[str, Any
 
 
 def scan_task(task_id: str) -> tuple[dict[str, Any], Path, Any]:
-    """Extract the prompt, scan it, and write prompt.md / prompt_cheat.json."""
+    """Scan page + uploaded prompt material and write the combined evidence."""
     task_dir = TASKS_DIR / task_id
     task_json = find_task_json(task_dir)
     if not task_json:
@@ -275,7 +349,7 @@ def scan_task(task_id: str) -> tuple[dict[str, Any], Path, Any]:
             f"tasks/{task_id}/*/task.json 不存在；先跑 fetch_g1_platform.js collect"
         )
     payload = load_task_payload(task_json)
-    prompt = extract_prompt_text(payload)
+    prompt, prompt_sources = combined_prompt(task_json, payload)
     hits = scan_round_cheat(prompt) if prompt else []
     report = {
         "task_id": task_id,
@@ -283,6 +357,10 @@ def scan_task(task_id: str) -> tuple[dict[str, Any], Path, Any]:
         "hit": bool(hits),
         "kind": "轮次作弊" if hits else "",
         "prompt_chars": len(prompt),
+        "prompt_sources": prompt_sources,
+        "uploaded_text_source_count": sum(
+            1 for source in prompt_sources if source.get("kind") == "task_upload_text"
+        ),
         "hits": hits,
         "quote": quote_hits(hits) if hits else "",
         "skip_product_retest": bool(hits),
@@ -348,7 +426,7 @@ def main() -> int:
     for task_id in args.task_ids:
         try:
             report, _task_json, payload = scan_task(task_id)
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
             print(f"  [err] {exc}", file=sys.stderr)
             return 2
         print_verdict(report)

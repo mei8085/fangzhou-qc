@@ -51,6 +51,10 @@ DEFECT_TAGS = {
 TAG_ISSUE_IN_NOTE = re.compile(r"标签|错选")
 BRACKET_TAG = re.compile(r"^【([^】]+)】")
 SELFTEST_INSUFFICIENT_RE = re.compile(r"(?:自测|测试|验证).{0,12}(?:不充分|不够充分|不足|遗漏)")
+NO_VISIBLE_BUG_RE = re.compile(
+    r"(?:无|没有|未发现|不存在).{0,10}(?:实锤|明确|明显|可见)?.{0,6}(?:Bug|bug|缺陷|故障)|"
+    r"无硬伤"
+)
 PREFIX_COMPATIBLE_TAGS = {
     "任务跑偏": {"指令不遵循"},
 }
@@ -113,6 +117,8 @@ def mismatch_reasons(tag_name: str, remark: str) -> list[str]:
         body, ("遗漏", "遗忘", "缺失", "未实现", "没入口", "没有入口", "不完整", "漏判", "漏掉", "没把")
     ):
         reasons.append("tag-omission-but-remark-complete")
+    if tag == "新功能有 Bug、或者历史 Bug 没改好" and NO_VISIBLE_BUG_RE.search(body):
+        reasons.append("tag-bug-but-remark-denies-visible-bug")
     return reasons
 
 
@@ -270,6 +276,14 @@ def self_test() -> list[str]:
     )
     if bug_with_ack:
         failures.append(f"false-positive-bug-with-ack:{bug_with_ack}")
+
+    bug_denied = mismatch_reasons(
+        "新功能有 Bug、或者历史 Bug 没改好",
+        "【模糊意图理解好】【新功能有 Bug、或者历史 Bug 没改好】"
+        "整体任务连贯成体系、无实锤可见 Bug，扣分仅因模拟行情覆盖深度有限。",
+    )
+    if "tag-bug-but-remark-denies-visible-bug" not in bug_denied:
+        failures.append("missed-bug-denial-conflict")
 
     tag_not_repeated = mismatch_reasons(
         "效率太低",

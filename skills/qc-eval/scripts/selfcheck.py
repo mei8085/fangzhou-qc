@@ -73,6 +73,7 @@ _MACHINE_QC_REASON_HEADER = "错误原因"
 _PLATFORM_AUDIT_HEADER = "一次质检平台审核理由（按模型）"
 _PROMPT_QUALITY_NOTE_HEADER = "题目质量说明"
 _HIGH_QUALITY_FEEDBACK_VALUE = "高质量"
+_CURRENT_PERIODS = {"G1-new", "g2-new"}
 
 TASK_REDLINE_OPTIONS = {
     "毫无意义的题目",
@@ -106,6 +107,11 @@ def find_headers(ws) -> dict[str, int]:
 def detect_period(headers: dict[str, int]) -> str:
     if any(h.startswith("【G1】") for h in headers) or "题目红线问题" in headers:
         return "G1-new"
+    if (
+        "一次质检平台审核理由（按模型）" in headers
+        and any(re.match(r"S\d+反馈质量（作业质量）$", h) for h in headers)
+    ):
+        return "g2-new"
     return "38期"
 
 
@@ -281,12 +287,12 @@ def scan_cell(
     if TRAILING_VERDICT.search(s):
         issues.append("trailing-verdict")
     if col in model_note_cols and not skip_annotator_checks:
-        if period == "G1-new":
+        if period in _CURRENT_PERIODS:
             if "标注" not in s and "轮次作弊" not in s:
                 issues.append("not-evaluating-annotator")
         elif not ANNOTATOR_REF.search(s):
             issues.append("not-evaluating-annotator")
-        if period == "G1-new" and not SCORE_IN_NOTE.search(s):
+        if period in _CURRENT_PERIODS and not SCORE_IN_NOTE.search(s):
             issues.append("model-note-missing-score")
         issues.extend(dangling_opening_issues(s))
     return issues
@@ -590,7 +596,7 @@ def label_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]:
 
 def g1_dirty_tag_issues(ws, headers: dict[str, int], period: str) -> dict[int, list[str]]:
     """G1 Feishu dirty-tag cells must be empty or an exact dropdown option."""
-    if period != "G1-new":
+    if period not in _CURRENT_PERIODS:
         return {}
     allowed = set(FEISHU_DIRTY_TAG_OPTIONS)
     bad: dict[int, list[str]] = {}
@@ -788,6 +794,55 @@ def load_qc_cells(task_id: str) -> dict | None:
         return None
 
 
+def task_upload_collection_issues(task_id: str) -> list[str]:
+    """Require g2-new first-round uploads to be collected before delivery."""
+    ark_dir = REPO_ROOT / "tasks" / task_id / "ark_g1"
+    task_path = ark_dir / "task.json"
+    manifest_path = ark_dir / "task_uploads.json"
+    if not task_path.exists():
+        return ["task-upload-task-json-missing"]
+    try:
+        task = json.loads(task_path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return ["task-upload-task-json-invalid"]
+    attachments = task.get("attachments")
+    if attachments is None and isinstance(task.get("task"), dict):
+        attachments = task["task"].get("attachments")
+    if not isinstance(attachments, list):
+        return ["task-upload-attachments-field-missing"]
+    if not manifest_path.exists():
+        return ["task-upload-manifest-missing"]
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return ["task-upload-manifest-invalid"]
+    issues: list[str] = []
+    if manifest.get("status") != "complete":
+        issues.append(f"task-upload-status:{manifest.get('status')}")
+    if int(manifest.get("reported_count") or 0) != len(attachments):
+        issues.append("task-upload-reported-count-mismatch")
+    if len(manifest.get("items") or []) != len(attachments):
+        issues.append("task-upload-downloaded-count-mismatch")
+    for key in ("inspection_path", "prompt_materials_path"):
+        rel_path = str(manifest.get(key) or "")
+        if not rel_path or not (ark_dir / rel_path).exists():
+            issues.append(f"task-upload-{key.replace('_', '-')}-missing")
+    prompt_report = REPO_ROOT / "tasks" / task_id / "prompt_cheat.json"
+    if not prompt_report.exists():
+        issues.append("task-upload-prompt-scan-missing")
+    else:
+        try:
+            report = json.loads(prompt_report.read_text(encoding="utf-8-sig"))
+        except Exception:
+            issues.append("task-upload-prompt-scan-invalid")
+        else:
+            expected = int(manifest.get("unique_text_material_count") or 0)
+            got = int(report.get("uploaded_text_source_count") or 0)
+            if expected != got:
+                issues.append("task-upload-prompt-source-count-mismatch")
+    return issues
+
+
 def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]], str]:
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb.active
@@ -929,6 +984,8 @@ def main() -> int:
         md_issues.extend(
             check_platform_qc_md(REPO_ROOT / "delivery" / tid / f"{tid}_model_qc_platform.md")
         )
+        if period == "g2-new":
+            md_issues.extend(task_upload_collection_issues(tid))
         if bad or md_issues:
             print(f"  [BAD] {tid}  ({period})")
             for col, issues in bad.items():

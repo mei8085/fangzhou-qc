@@ -77,8 +77,7 @@ def main() -> int:
         log_candidates = sorted(task_dir.glob(f"logs_{code}_go_test*.txt"))
         log = log_candidates[0] if log_candidates else None
         log_text = log.read_text(encoding="utf-8", errors="replace") if log else "go test log not found"
-        header = f"{args.task_id}  {col} ({code})\nGo controller test evidence\n\n"
-        render_panel(header + head_tail(log_text), out_dir / f"{tag}_01_terminal_test.png")
+        render_panel(head_tail(log_text), out_dir / f"{tag}_01_terminal_test.png")
 
         code_file = task_dir / "extracted" / code / "controller" / "channel_upstream_update.go"
         if not code_file.exists() and code == "1PFMT":

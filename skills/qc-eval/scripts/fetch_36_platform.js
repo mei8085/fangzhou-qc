@@ -9,6 +9,8 @@
 // Outputs:
 //   tasks/<TASK_ID>/ark38/model_runs.json
 //   tasks/<TASK_ID>/ark38/task.json
+//   tasks/<TASK_ID>/ark38/task_uploads.json
+//   tasks/<TASK_ID>/ark38/task_uploads/<first-round Prompt uploads>
 //   tasks/<TASK_ID>/ark38/<RUN_ID>__<CODE_NAME>/
 //     model_run.json
 //     evaluation.json
@@ -22,6 +24,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
@@ -92,9 +95,9 @@ notes:
   auth-from-chrome copies volcengine cookies from the local Chrome profile (Windows VSS / macOS Keychain / Linux).
   If cookie export fails, it falls back to auth-login (headed Playwright window).
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
-  collect reads task/model rows, per-run evaluation/audit data, 下载列表, workspace zip, and session trajectory JSON.
-  After CaseBffV1CrowdtestTaskGet, collect scans the prompt for round-quota cheating. A hit skips workspace/trajectory/download-list.
-  Current period: search by 任务ID on project 281, then collect the 4 model rows (模型运行 + 下载列表).`);
+  collect reads first-round Prompt uploads, task/model rows, per-run evaluation/audit data, 下载列表, workspace zip, and session trajectory JSON.
+  After CaseBffV1CrowdtestTaskGet, collect downloads and inspects first-round uploads, then scans page + uploaded text for round-quota cheating. A hit skips workspace/trajectory/download-list.
+  The current fetch_g1_platform.js wrapper searches project 286 by 任务ID and expects obelisk + notch.`);
   process.exit(code);
 }
 
@@ -104,6 +107,13 @@ function rel(p) {
 
 function sanitize(s) {
   return String(s || '').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
+}
+
+function safeUploadName(value, fallback) {
+  const base = path.posix.basename(String(value || '').replace(/\\/g, '/'));
+  const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, '_').replace(/[/:*?"<>|]/g, '_').trim();
+  if (!cleaned || cleaned === '.' || cleaned === '..') return fallback;
+  return cleaned.slice(0, 180);
 }
 
 function ensureDir(dir) {
@@ -208,6 +218,123 @@ async function downloadTo(url, outPath, keepExisting) {
   const size = fs.statSync(outPath).size;
   console.log(`   [download] ${rel(outPath)} (${size} bytes)`);
   return { path: outPath, size, skipped: false };
+}
+
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(file);
+    stream.on('error', reject);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+function taskUploadField(task) {
+  if (task && Object.prototype.hasOwnProperty.call(task, 'attachments')) {
+    if (!Array.isArray(task.attachments)) throw new Error('CaseBffV1CrowdtestTaskGet.attachments is not an array');
+    return { field: 'attachments', items: task.attachments };
+  }
+  if (task && task.task && Object.prototype.hasOwnProperty.call(task.task, 'attachments')) {
+    if (!Array.isArray(task.task.attachments)) throw new Error('CaseBffV1CrowdtestTaskGet.task.attachments is not an array');
+    return { field: 'task.attachments', items: task.task.attachments };
+  }
+  throw new Error('CaseBffV1CrowdtestTaskGet did not report an attachments field; cannot verify 首轮 Prompt / 上传产物');
+}
+
+async function collectTaskUploads(task, taskDir, opts) {
+  const uploadField = taskUploadField(task);
+  const uploadsDir = path.join(taskDir, 'task_uploads');
+  const manifestPath = path.join(taskDir, 'task_uploads.json');
+  let previousManifest = null;
+  if (fs.existsSync(manifestPath)) {
+    try {
+      previousManifest = readJSON(manifestPath);
+    } catch {
+      previousManifest = null;
+    }
+  }
+  ensureDir(uploadsDir);
+  const manifest = {
+    schema_version: 1,
+    source: `CaseBffV1CrowdtestTaskGet.${uploadField.field}`,
+    source_label: '首轮 Prompt / 上传产物',
+    reported_count: uploadField.items.length,
+    status: 'downloading',
+    items: [],
+    started_at: new Date().toISOString(),
+  };
+  writeJSON(manifestPath, manifest);
+  console.log(`==> first-round task uploads: ${uploadField.items.length} item(s)`);
+
+  try {
+    for (const [index, att] of uploadField.items.entries()) {
+      const url = att.downloadUrl || att.previewUrl || att.url;
+      const fileName = safeUploadName(
+        att.fileName || att.relativePath || att.name,
+        `upload_${String(index + 1).padStart(2, '0')}.bin`,
+      );
+      if (!url) throw new Error(`task upload ${index + 1} (${fileName}) has no download URL`);
+      const localName = `${String(index + 1).padStart(2, '0')}_${fileName}`;
+      const outPath = path.join(uploadsDir, localName);
+      const expectedSize = Number(att.sizeBytes || att.fileSize || att.size || 0);
+      const previous = ((previousManifest && previousManifest.items) || []).find((item) => (
+        Number(item.index) === index + 1
+        && item.local_path === path.posix.join('task_uploads', localName)
+        && String(item.object_key || '') === String(att.objectKey || '')
+        && String(item.etag || '') === String(att.etag || '')
+        && Number(item.expected_size_bytes || 0) === expectedSize
+      ));
+      const downloaded = await downloadTo(url, outPath, Boolean(opts.keepExisting && previous));
+      if (expectedSize > 0 && downloaded.size !== expectedSize) {
+        throw new Error(`task upload size mismatch for ${fileName}: expected ${expectedSize}, got ${downloaded.size}`);
+      }
+      const digest = await sha256File(outPath);
+      if (downloaded.skipped && previous.sha256 && previous.sha256 !== digest) {
+        throw new Error(`cached task upload checksum changed for ${fileName}; rerun without --keep-existing`);
+      }
+      manifest.items.push({
+        index: index + 1,
+        id: att.id == null ? null : att.id,
+        file_name: fileName,
+        original_relative_path: att.relativePath || '',
+        local_path: path.posix.join('task_uploads', localName),
+        content_type: att.contentType || '',
+        source: att.source || '',
+        object_key: att.objectKey || '',
+        etag: att.etag || '',
+        expected_size_bytes: expectedSize || null,
+        size_bytes: downloaded.size,
+        sha256: digest,
+        reused_existing: Boolean(downloaded.skipped),
+      });
+      writeJSON(manifestPath, manifest);
+    }
+    manifest.status = 'downloaded';
+    manifest.downloaded_at = new Date().toISOString();
+    writeJSON(manifestPath, manifest);
+  } catch (err) {
+    manifest.status = 'download_failed';
+    manifest.error = String((err && err.message) || err);
+    manifest.failed_at = new Date().toISOString();
+    writeJSON(manifestPath, manifest);
+    throw err;
+  }
+
+  const status = runPythonQc('inspect_task_uploads.py', ['--task-dir', taskDir]);
+  if (status !== 0) {
+    throw new Error(`first-round task upload inspection failed (exit ${status}); stop before prompt/product review`);
+  }
+  const completed = readJSON(manifestPath);
+  if (completed.status !== 'complete' || Number(completed.reported_count) !== completed.items.length) {
+    throw new Error('first-round task upload manifest is incomplete; stop before prompt/product review');
+  }
+  console.log(
+    `==> first-round task uploads complete: ${completed.items.length} file(s), `
+    + `${completed.text_material_count || 0} text path(s), `
+    + `${completed.unique_text_material_count || 0} unique text material(s)`,
+  );
+  return completed;
 }
 
 function msToISO(ms) {
@@ -696,12 +823,20 @@ async function collect(opts) {
     }
 
     const taskPath = path.join(taskDir, 'task.json');
-    if (runOpts.keepExisting && fs.existsSync(taskPath)) {
-      console.log(`   [keep] ${rel(taskPath)}`);
-    } else {
-      const task = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskGet', { taskId });
+    let task;
+    try {
+      // Task upload URLs are signed and short-lived, so always refresh task.json.
+      task = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskGet', { taskId });
       writeJSON(taskPath, task);
+    } catch (err) {
+      if (!runOpts.keepExisting || !fs.existsSync(taskPath) || !isTransientApiError(err)) throw err;
+      console.warn(`   [cache] task detail refresh failed: ${err.message}; using ${rel(taskPath)}`);
+      task = readJSON(taskPath);
     }
+
+    // "首轮 Prompt / 上传产物" is independent from model Workspace/download-list.
+    // Download and inspect it before any prompt gate or product review.
+    await collectTaskUploads(task, taskDir, runOpts);
 
     if (scanPromptCheat(localId)) {
       console.log('==> PROMPT CHEAT: skip workspace / trajectory / download-list; do not retest products');

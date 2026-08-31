@@ -6,9 +6,9 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'g1.json');
-const FALLBACK_PROJECT_ID = 287;
+const FALLBACK_PROJECT_ID = 286;
 const FALLBACK_PROJECT_URL =
-  'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287?tab=review';
+  'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/286?tab=review';
 
 function loadConfig() {
   try {
@@ -31,7 +31,7 @@ function loadConfig() {
   const has = (flag) => argv.includes(flag);
   if (cmd === 'collect' || cmd === 'discover-download' || cmd === 'discover-audit') {
     if (!has('--project')) argv.push('--project', projectId);
-    if (!has('--output-subdir')) argv.push('--output-subdir', 'ark_g1');
+    if (!has('--output-subdir')) argv.push('--output-subdir', cfg.output_subdir || 'ark_g1');
     if (cmd === 'collect' && platformCodes && !has('--expect-platform-codes')) {
       argv.push('--expect-platform-codes', platformCodes);
     }

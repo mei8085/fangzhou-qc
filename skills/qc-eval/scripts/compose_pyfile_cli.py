@@ -55,6 +55,7 @@ def find_script(model_dir: Path, candidates: list[str]) -> str | None:
 
 
 def run_cmd(model_dir: Path, cmd_argv: list[str], timeout: int) -> str:
+    prompt = f"$ python {shlex.join(cmd_argv)}"
     try:
         r = subprocess.run(
             [sys.executable, *cmd_argv],
@@ -63,12 +64,13 @@ def run_cmd(model_dir: Path, cmd_argv: list[str], timeout: int) -> str:
             text=True,
             timeout=timeout,
         )
-    except subprocess.TimeoutExpired:
-        return f"<timeout after {timeout}s>"
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or "") + (e.stderr or "")
+        return f"{prompt}\n{strip_ansi(out)}".strip()
     except Exception as e:
-        return f"<failed: {e}>"
+        return f"{prompt}\n{e}".strip()
     out = (r.stdout or "") + (r.stderr or "")
-    return f"$ python {' '.join(cmd_argv)}\n(exit={r.returncode})\n\n" + strip_ansi(out).strip()
+    return f"{prompt}\n{strip_ansi(out)}".strip()
 
 
 def compose_one(sheet_label: str, model_dir: Path, out_dir: Path,

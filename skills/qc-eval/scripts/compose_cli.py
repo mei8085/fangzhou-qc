@@ -41,6 +41,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -157,6 +158,7 @@ def clean_terminal_text(text: str) -> str:
 
 
 def run_command(model_dir: Path, cmd: list[str], timeout: int = 120) -> str:
+    prompt = f"$ {shlex.join(cmd)}"
     env = None
     if len(cmd) >= 3 and cmd[1:3] == ["-m", "pytest"]:
         env = os.environ.copy()
@@ -168,12 +170,13 @@ def run_command(model_dir: Path, cmd: list[str], timeout: int = 120) -> str:
             cmd, cwd=model_dir, capture_output=True, text=True,
             shell=use_shell, timeout=timeout, env=env,
         )
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or "") + (e.stderr or "")
+        return f"{prompt}\n{out}".strip()
     except Exception as e:
-        return f"<failed to run {' '.join(cmd)}: {e}>"
+        return f"{prompt}\n{e}".strip()
     out = (r.stdout or "") + (r.stderr or "")
-    lines = [ln for ln in out.splitlines() if not ln.startswith("> ")]
-    body = "\n".join(lines).strip()
-    return f"$ {' '.join(cmd)}\n{body}\nexit_code={r.returncode}".strip()
+    return f"{prompt}\n{out}".strip()
 
 
 def run_test(model_dir: Path) -> str:

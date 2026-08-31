@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -24,15 +25,18 @@ REPO_ROOT = HERE.parent.parent.parent
 
 
 def run_cmd(cmd: list[str], cwd: Path, timeout: int = 180) -> str:
+    prompt = f"$ {shlex.join(cmd)}"
     try:
         r = subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, shell=True, timeout=timeout,
+            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout,
         )
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or "") + (e.stderr or "")
+        return f"{prompt}\n{out}".strip()
     except Exception as e:
-        return f"<failed: {e}>"
+        return f"{prompt}\n{e}".strip()
     out = (r.stdout or "") + (r.stderr or "")
-    lines = [ln for ln in out.splitlines() if not ln.startswith("> ")]
-    return "\n".join(lines).strip()
+    return f"{prompt}\n{out}".strip()
 
 
 def compose_one(sheet_label: str, model_dir: Path, out_dir: Path) -> dict:

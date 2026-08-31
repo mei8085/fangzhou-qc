@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -41,34 +42,31 @@ def _strip_ansi(s: str) -> str:
     return ANSI_RE.sub("", s)
 
 
-def run_pytest(model_dir: Path) -> str:
+def terminal_capture(model_dir: Path, cmd: list[str], timeout: int) -> str:
+    prompt = f"$ {shlex.join(cmd)}"
     try:
         r = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q"],
+            cmd,
             cwd=model_dir,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=timeout,
         )
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or "") + (e.stderr or "")
+        return f"{prompt}\n{_strip_ansi(out)}".strip()
     except Exception as e:
-        return f"<failed to run pytest: {e}>"
+        return f"{prompt}\n{e}".strip()
     out = (r.stdout or "") + (r.stderr or "")
-    return _strip_ansi(out).strip()
+    return f"{prompt}\n{_strip_ansi(out)}".strip()
+
+
+def run_pytest(model_dir: Path) -> str:
+    return terminal_capture(model_dir, [sys.executable, "-m", "pytest", "-q"], 180)
 
 
 def run_cli(model_dir: Path, package: str, fixtures: str, extra: list[str]) -> str:
-    try:
-        r = subprocess.run(
-            [sys.executable, "-m", f"{package}.cli", fixtures, *extra],
-            cwd=model_dir,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except Exception as e:
-        return f"<failed to run cli: {e}>"
-    out = (r.stdout or "") + (r.stderr or "")
-    return _strip_ansi(out).strip()
+    return terminal_capture(model_dir, [sys.executable, "-m", f"{package}.cli", fixtures, *extra], 60)
 
 
 def compose_one(sheet_label: str, model_dir: Path, out_dir: Path, package: str, fixtures: str, cli_extra: list[str]) -> dict:

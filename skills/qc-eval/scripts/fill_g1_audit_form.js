@@ -11,7 +11,7 @@
  *
  * Usage:
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --only tulip
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6162 --only obelisk
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --dry-run
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --headed
  */
@@ -276,7 +276,7 @@ function sameEvalSnapshot(before, after) {
 
 async function openAuditPage(page, row) {
   const url = row.audit_url
-    || `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287/review/${row.task_model_run_id}?mode=audit`;
+    || `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/286/review/${row.task_model_run_id}?mode=audit`;
   let lastErr;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 LIB_DIR = Path(__file__).resolve().parent
@@ -12,7 +13,21 @@ REPO_ROOT = SKILL_DIR.parent.parent
 
 SOURCE_XLSX_NAME_38 = "众测质检38.xlsx"
 WINDOWS_LEGACY_SOURCE_38 = Path("D:/fz/fangzhou") / SOURCE_XLSX_NAME_38
-G1_SOURCE_XLSX = REPO_ROOT / "docs" / "41.xlsx"
+G1_CONFIG_PATH = SKILL_DIR / "config" / "g1.json"
+
+
+def _configured_g1_source_xlsx() -> Path:
+    try:
+        value = json.loads(G1_CONFIG_PATH.read_text(encoding="utf-8")).get("source_xlsx")
+    except (OSError, ValueError):
+        value = None
+    if not value:
+        return REPO_ROOT / "docs" / "g2-new.xlsx"
+    path = Path(str(value)).expanduser()
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+G1_SOURCE_XLSX = _configured_g1_source_xlsx()
 
 
 def default_g1_source_xlsx() -> Path:
@@ -20,7 +35,7 @@ def default_g1_source_xlsx() -> Path:
 
     Resolution order:
     1. ``QC_SOURCE_XLSX`` environment variable, if set
-    2. Repo-local ``docs/41.xlsx``
+    2. The repo-relative path in ``config/g1.json``
     """
     env = os.environ.get("QC_SOURCE_XLSX", "").strip()
     if env:

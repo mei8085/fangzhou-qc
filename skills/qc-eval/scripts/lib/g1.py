@@ -6,28 +6,51 @@ import json
 import re
 from pathlib import Path
 
-from .paths import REPO_ROOT, SKILL_DIR
+from .paths import REPO_ROOT, SKILL_DIR, default_g1_source_xlsx
 
 CONFIG_PATH = SKILL_DIR / "config" / "g1.json"
-PERIOD = "41期"
-PROJECT_ID = 287
-PROJECT_URL = (
-    "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287?tab=review"
-)
-AUDIT_URL_TEMPLATE = (
-    "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/"
-    "287/review/{taskModelRunId}?mode=audit"
-)
-AUDIT_FORM_TEMPLATE = SKILL_DIR / "config" / "g1_audit_form.json"
-SOURCE_XLSX = REPO_ROOT / "docs" / "41.xlsx"
-SOURCE_SHEET = "Sheet1"
-FEISHU_WIKI = "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=8aVVr7"
-FEISHU_SHEET_ID = "8aVVr7"
-OUTPUT_SUBDIR = "ark_g1"
+_FALLBACK_CONFIG = {
+    "period": "g2-new",
+    "project_id": 286,
+    "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/286?tab=review",
+    "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/286/review/{taskModelRunId}?mode=audit",
+    "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
+    "source_xlsx": "docs/g2-new.xlsx",
+    "source_sheet": "Sheet1",
+    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=j4S99A",
+    "feishu_sheet_id": "j4S99A",
+    "output_subdir": "ark_g1",
+    "models": [
+        {"sheet": "S203", "code": "S203", "platform": "obelisk"},
+        {"sheet": "S450", "code": "S450", "platform": "notch"},
+    ],
+}
+
+
+def load_g1_config() -> dict:
+    """Return the current-period config with safe defaults for missing keys."""
+    config = dict(_FALLBACK_CONFIG)
+    if CONFIG_PATH.exists():
+        config.update(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
+    return config
+
+
+_CONFIG = load_g1_config()
+PERIOD = str(_CONFIG["period"])
+PROJECT_ID = int(_CONFIG["project_id"])
+PROJECT_URL = str(_CONFIG["project_url"])
+AUDIT_URL_TEMPLATE = str(_CONFIG["audit_url_template"])
+_audit_template = Path(str(_CONFIG["audit_form_template"]))
+AUDIT_FORM_TEMPLATE = _audit_template if _audit_template.is_absolute() else REPO_ROOT / _audit_template
+SOURCE_XLSX = default_g1_source_xlsx()
+SOURCE_SHEET = str(_CONFIG.get("source_sheet") or "Sheet1")
+FEISHU_WIKI = str(_CONFIG["feishu_wiki"])
+FEISHU_SHEET_ID = str(_CONFIG["feishu_sheet_id"])
+OUTPUT_SUBDIR = str(_CONFIG.get("output_subdir") or "ark_g1")
 DEFAULT_DIRTY_TAG = "非脏数据"
 
-# Feishu 41期脏数据标签列下拉（截图口径）。非脏数据不要写「非脏数据」，留空。
-FEISHU_DIRTY_TAG_OPTIONS = [
+# Feishu current-period dirty-tag dropdown. Non-dirty data stays blank.
+FEISHU_DIRTY_TAG_OPTIONS = _CONFIG.get("feishu_dirty_tag_options") or [
     "模型资源问题:API请求超时/轨迹大量error",
     "OpenClaw/Hermes框架问题",
     "用户问题:低质量任务",
@@ -55,49 +78,26 @@ _FEISHU_DIRTY_ALIAS = {
     "轮次作弊": FEISHU_DIRTY_TAG_OPTIONS[2],
 }
 
-# sheet header prefix → platform codeName
+# Sheet header/code → Ark platform codeName. Keep this sourced from g1.json.
+_MODELS = _CONFIG.get("models") or _FALLBACK_CONFIG["models"]
 SHEET_TO_PLATFORM = {
-    "q3.8max": "tulip",
-    "0817A": "oak",
-    "0820B": "quill",
-    "0819K": "parapet",
+    str(item["sheet"]): str(item["platform"])
+    for item in _MODELS
+    if item.get("sheet") and item.get("platform")
 }
 CODE_TO_PLATFORM = {
-    "q3.8max": "tulip",
-    "0817A": "oak",
-    "0820B": "quill",
-    "0819K": "parapet",
+    str(item.get("code") or item["sheet"]): str(item["platform"])
+    for item in _MODELS
+    if item.get("sheet") and item.get("platform")
 }
 PLATFORM_TO_SHEET = {v: k for k, v in SHEET_TO_PLATFORM.items()}
 PLATFORM_TO_CODE = {v: k for k, v in CODE_TO_PLATFORM.items()}
 SHEET_MODELS = list(SHEET_TO_PLATFORM.keys())
 PLATFORM_CODES = list(CODE_TO_PLATFORM.values())
-
-
-def load_g1_config() -> dict:
-    """Return the on-disk current-period config, falling back to the in-module constants."""
-    if not CONFIG_PATH.exists():
-        return {
-            "period": PERIOD,
-            "project_id": PROJECT_ID,
-            "project_url": PROJECT_URL,
-            "source_xlsx": str(SOURCE_XLSX),
-            "source_sheet": SOURCE_SHEET,
-            "feishu_wiki": FEISHU_WIKI,
-            "feishu_sheet_id": FEISHU_SHEET_ID,
-            "output_subdir": OUTPUT_SUBDIR,
-            "models": [
-                {"sheet": sheet, "code": PLATFORM_TO_CODE[platform], "platform": platform}
-                for sheet, platform in SHEET_TO_PLATFORM.items()
-            ],
-        }
-    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-
-
 def sheet_model_label(sheet_name: str) -> str:
     """Return the Feishu audit-reason label with the Ark platform codeName.
 
-    Example: ``0817A`` -> ``0817A（oak）``. Unknown sheet names
+    Example: ``S203`` -> ``S203（obelisk）``. Unknown sheet names
     are returned unchanged so other periods keep their original prefixes.
     """
     name = str(sheet_name or "").strip()

@@ -108,7 +108,7 @@ def render(task_id: str, qc: dict, model_map: dict | None) -> str:
 
     # task-wide question
     tq = p.get("task_quality")
-    lines.append("## 1. 请选择该任务的质量（题目层级，4 个模型共用）")
+    lines.append("## 1. 请选择该任务的质量（题目层级，所有模型共用）")
     lines.append("")
     lines.append(f"- **答**：{tq if tq else '（待定）'}")
     if p.get("task_quality_note"):

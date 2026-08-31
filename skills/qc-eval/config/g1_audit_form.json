@@ -1,25 +1,11 @@
 {
-  "period": "41期",
-  "project_id": 287,
+  "period": "g2-new",
+  "project_id": 286,
   "source": {
-    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/287/review/12232?mode=audit",
-    "task_id": 4267,
-    "task_title": "肉鸽自走棋",
-    "task_model_run_id": 12232,
-    "platform": "harrier",
-    "sheet_model": "【G1】S347",
-    "captured_at": "2026-08-22T09:02:32.767Z",
-    "api": {
-      "action": "CaseBffV1CrowdtestTaskModelAuditGet",
-      "body": {
-        "taskModelRunId": 12232
-      }
-    },
-    "local_snapshot": [
-      "tasks/<TASK_ID>/ark_g1/audit_form_<runId>.json",
-      "tasks/<TASK_ID>/ark_g1/audit_get_<runId>.json",
-      "tasks/<TASK_ID>/ark_g1/_audit_form_<runId>.png"
-    ]
+    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/286/task/6162",
+    "task_id": 6162,
+    "task_title": "网页端新增K线训练营",
+    "note": "质检表单字段沿用当前 Ark 通用结构；逐模型 review URL 由采集结果动态生成。"
   },
   "page": {
     "left_tabs": [

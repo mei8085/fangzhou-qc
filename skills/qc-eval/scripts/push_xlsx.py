@@ -14,9 +14,9 @@ from tasks/<TASK_ID>/qc_cells.json after the rebuild.
 
 Usage:
     push_xlsx.py <TASK_ID> [<TASK_ID> ...]
-        [--source <repo>/docs/41.xlsx]
+        [--source <repo>/docs/g2-new.xlsx]
         [--sheet Sheet1]
-        [--period 41期]
+        [--period g2-new]
 """
 
 from __future__ import annotations
@@ -48,8 +48,7 @@ SHEET_G1 = DEFAULT_SHEET
 MACHINE_QC_HEADER = "机器质检结果是否正确"
 MACHINE_QC_OPTIONS = ("正确", "部分正确可参考", "错误")
 PERIOD_PRESETS = {
-    "G1-new": (SOURCE_G1, SHEET_G1),
-    "41期": (SOURCE_G1, SHEET_G1),
+    "g2-new": (SOURCE_G1, SHEET_G1),
     "38期": (SOURCE_38, SHEET_38),
 }
 
@@ -348,6 +347,10 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
             # 29 期表头没有 diff_pattern / score_*，不算错，静默跳过。
             if key_or_aliases in _PERIOD_OPTIONAL_KEYS or header in _PERIOD_OPTIONAL_HEADERS:
                 continue
+            if header in {"题目是否可验", "题目是否可验证"} and (
+                "题目是否可验" in headers or "题目是否可验证" in headers
+            ):
+                continue
             print(f"     [warn] header missing: {header!r}")
             continue
         if has_sheet_key(sheet, key_or_aliases):
@@ -465,7 +468,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("task_ids", nargs="+")
     p.add_argument("--period", choices=sorted(PERIOD_PRESETS),
-                   help="使用内置期数配置；41期使用源表「任务ID」作为本地目录名")
+                   help="使用内置期数配置；当前期使用源表「任务ID」作为本地目录名")
     p.add_argument("--source", default=None)
     p.add_argument("--sheet", default=None)
     p.add_argument("--tasks-dir", default=str(REPO_ROOT / "tasks"))

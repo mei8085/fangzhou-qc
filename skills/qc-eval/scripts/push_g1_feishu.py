@@ -7,7 +7,7 @@ refuses to write unless the remote task title matches the local delivery
 workbook's task title.
 
 Default target:
-  https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=8aVVr7
+  https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=j4S99A
 
 Usage:
   python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run

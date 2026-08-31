@@ -16,6 +16,11 @@
 //   node screenshot_vue.js <TASK_ID> [--only <COL>]
 //                          [--base-port 5173] [--keep-existing]
 //                          [--if-annotator-web]
+//
+// Optional task config: tasks/<TASK_ID>/screenshot_vue.json. A model entry can
+// define route + ordered steps ({name, goto, click, clicks, wait_for_text,
+// wait_for_selector}) for
+// task-specific evidence instead of the legacy cart-oriented fallback.
 
 const { chromium } = require('playwright');
 const { spawn, spawnSync } = require('child_process');
@@ -414,6 +419,86 @@ async function screenshotModel(browser, label, code, entryDir, outDir, port, kee
   return { initialPng, cartAddPng, cartOpenPng };
 }
 
+async function screenshotConfiguredModel(browser, label, code, entryDir, outDir, port, keep, config) {
+  const tag = sanitize(label);
+  const steps = Array.isArray(config.steps) ? config.steps : [];
+  if (!steps.length) throw new Error(`screenshot_vue config for ${label} has no steps`);
+  const firstPng = path.join(outDir, `${tag}_01_${sanitize(steps[0].name || 'initial')}.png`);
+  if (keep && fs.existsSync(firstPng)) {
+    console.log(`   [skip] ${label} (${code}): ${path.basename(firstPng)} exists`);
+    return { skipped: true };
+  }
+  for (const name of fs.readdirSync(outDir)) {
+    if (name.startsWith(`${tag}_`) && name.endsWith('.png')) fs.unlinkSync(path.join(outDir, name));
+  }
+
+  let dev;
+  try {
+    dev = await startDevServer(entryDir, port);
+  } catch (e) {
+    console.error(`   [err] ${label}: dev server failed — ${e.message}`);
+    return { error: e.message };
+  }
+  console.log(`     vite up at ${dev.url}`);
+  const viewport = config.viewport || { width: 1440, height: 1000 };
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor: config.device_scale_factor || 1 });
+  const page = await ctx.newPage();
+  const errs = [];
+  page.on('pageerror', e => errs.push(e.message));
+  let currentRoute = config.route || '';
+  let captureIndex = 0;
+
+  try {
+    for (let index = 0; index < steps.length; index++) {
+      const step = steps[index] || {};
+      if (index === 0 || Object.prototype.hasOwnProperty.call(step, 'goto')) {
+        currentRoute = Object.prototype.hasOwnProperty.call(step, 'goto') ? step.goto : currentRoute;
+        const targetUrl = new URL(currentRoute || '', dev.url).toString();
+        if (page.url() === targetUrl) {
+          await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        } else {
+          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        }
+        await page.waitForFunction(
+          () => document.body && document.body.innerText && document.body.innerText.length > 30,
+          null, { timeout: 20000 }
+        );
+      }
+      const selectors = [];
+      if (step.click) selectors.push(step.click);
+      if (Array.isArray(step.clicks)) selectors.push(...step.clicks);
+      for (const selector of selectors) {
+        const locator = page.locator(selector).first();
+        await locator.waitFor({ state: 'visible', timeout: 10000 });
+        await locator.click({ timeout: 10000 });
+        await page.waitForTimeout(step.action_delay_ms || 700);
+      }
+      if (step.wait_for_text) {
+        await page.getByText(step.wait_for_text, { exact: false }).first().waitFor({ state: 'visible', timeout: 10000 });
+      }
+      if (step.wait_for_selector) {
+        await page.locator(step.wait_for_selector).first().waitFor({ state: 'visible', timeout: 10000 });
+      }
+      await page.waitForTimeout(step.delay_ms || 1000);
+      if (step.capture === false) continue;
+      captureIndex += 1;
+      const name = sanitize(step.name || `step_${index + 1}`);
+      const png = path.join(outDir, `${tag}_${String(captureIndex).padStart(2, '0')}_${name}.png`);
+      await page.screenshot({ path: png, fullPage: step.full_page !== false });
+      console.log(`     ${path.basename(png)}`);
+    }
+    if (errs.length) console.log(`     pageerrors: ${errs.length} (first: ${errs[0].slice(0, 200)})`);
+  } catch (e) {
+    console.error(`   [err] ${label}: ${e.message}`);
+    return { error: e.message };
+  } finally {
+    await ctx.close();
+    killTree(dev.child.pid);
+    await new Promise(r => setTimeout(r, 800));
+  }
+  return { firstPng };
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   const taskDir = path.join(REPO_ROOT, 'tasks', args.id);
@@ -423,6 +508,10 @@ async function main() {
     process.exit(2);
   }
   const map = JSON.parse(fs.readFileSync(mapPath, 'utf8'));
+  const screenshotConfigPath = path.join(taskDir, 'screenshot_vue.json');
+  const screenshotConfig = fs.existsSync(screenshotConfigPath)
+    ? JSON.parse(fs.readFileSync(screenshotConfigPath, 'utf8'))
+    : {};
   if (args.printSteps) {
     printManualSteps(args.id, map, args.basePort);
     return;
@@ -444,7 +533,12 @@ async function main() {
       console.error(`   [skip] no package.json at ${entryDir}`);
       continue;
     }
-    await screenshotModel(browser, col, info.code, entryDir, outDir, port, args.keep);
+    const modelConfig = (screenshotConfig.models || {})[col];
+    if (modelConfig) {
+      await screenshotConfiguredModel(browser, col, info.code, entryDir, outDir, port, args.keep, modelConfig);
+    } else {
+      await screenshotModel(browser, col, info.code, entryDir, outDir, port, args.keep);
+    }
     port += 1;
   }
   await browser.close();

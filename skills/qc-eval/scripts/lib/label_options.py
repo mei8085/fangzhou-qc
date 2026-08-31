@@ -88,7 +88,7 @@ def resolve_task_label(
 
     Existing non-empty sheet values are left untouched by callers. When the
     source label is blank, prefer an explicit qc_cells sheet label, then infer
-    from the task title and prompt using the configured 41期 option list.
+    from the task title and prompt using the configured current-period option list.
     """
     existing = _clean(existing_label)
     if existing:

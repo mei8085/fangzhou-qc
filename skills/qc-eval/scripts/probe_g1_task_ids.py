@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe current-period tasks from the local source xlsx (docs/41.xlsx).
+"""Probe current-period tasks from the configured local source xlsx.
 
 The workflow does not sync the QC working set from Feishu. The local workbook
 is the source of truth; Feishu is only the delivery target.

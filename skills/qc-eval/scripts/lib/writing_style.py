@@ -164,7 +164,7 @@ def opening_prefix(text: str, n: int) -> str:
 
 
 def strip_audit_model_prefix(line: str) -> str:
-    """Strip ``0817A（magma）：`` or ``summit：`` from an audit-reason line."""
+    """Strip ``S203（obelisk）：`` or ``S203：`` from an audit-reason line."""
     return MODEL_AUDIT_PREFIX.sub("", str(line or "").strip(), count=1).strip()
 
 
