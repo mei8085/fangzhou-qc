@@ -97,7 +97,7 @@ notes:
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
   collect reads first-round Prompt uploads, task/model rows, per-run evaluation/audit data, 下载列表, workspace zip, and session trajectory JSON.
   After CaseBffV1CrowdtestTaskGet, collect downloads and inspects first-round uploads, then scans page + uploaded text for round-quota cheating. A hit skips workspace/trajectory/download-list.
-  The current fetch_g1_platform.js wrapper searches project 286 by 任务ID and expects obelisk + notch.`);
+  The current fetch_g1_platform.js wrapper reads its project and expected model codes from config/g1.json.`);
   process.exit(code);
 }
 
@@ -1281,6 +1281,9 @@ function authFromChromeUnix(opts) {
 
 async function authLogin(opts) {
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
+  const pendingStatePath = `${statePath}.pending`;
+  const cfg = loadG1Config() || {};
+  const projectId = Number(opts.project || cfg.project_id || 313);
   const loginUrl = opts.url
     || 'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/256?tab=review';
   const timeoutMs = Number(opts.timeout || 300000);
@@ -1295,21 +1298,54 @@ async function authLogin(opts) {
   const page = await ctx.newPage();
   await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
   console.log('==> waiting for volcengine login in the opened browser window');
-  console.log('    sign in, then leave the window open until csrfToken is captured');
+  console.log('    sign in, then leave the window open until the Ark session is verified');
   const started = Date.now();
   try {
     while (Date.now() - started < timeoutMs) {
       const cookies = await ctx.cookies();
       const csrf = cookies.find((c) => c.name === 'csrfToken' && String(c.domain || '').includes('volcengine.com'));
       if (csrf && csrf.value) {
-        await ctx.storageState({ path: statePath });
-        csrfFromState(statePath);
-        console.log(`==> wrote ${rel(statePath)} (${cookies.length} cookies)`);
-        return;
+        await ctx.storageState({ path: pendingStatePath });
+        csrfFromState(pendingStatePath);
+        try {
+          await postAction(ctx, pendingStatePath, 'CaseBffV1CrowdtestTaskModelRunList', {
+            projectId,
+            page: 1,
+            pageSize: 1,
+            taskKeyword: '',
+            visibleColumns: VISIBLE_COLUMNS,
+          });
+          fs.renameSync(pendingStatePath, statePath);
+          console.log(`==> wrote ${rel(statePath)} (${cookies.length} cookies, Ark session verified)`);
+          return;
+        } catch (err) {
+          if (!/NotLogin|Not logged in|HTTP 401/i.test(String(err && err.message || err))) {
+            throw err;
+          }
+        }
       }
       await sleep(1500);
     }
     throw new Error(`timed out waiting for csrfToken after ${timeoutMs}ms; re-run auth-login after signing in`);
+  } finally {
+    if (fs.existsSync(pendingStatePath)) fs.rmSync(pendingStatePath, { force: true });
+    await browser.close();
+  }
+}
+
+async function verifyArkState(statePath, opts = {}) {
+  const cfg = loadG1Config() || {};
+  const projectId = Number(opts.project || cfg.project_id || 313);
+  const browser = await chromium.launch({ headless: true });
+  const ctx = await browser.newContext({ storageState: statePath });
+  try {
+    await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelRunList', {
+      projectId,
+      page: 1,
+      pageSize: 1,
+      taskKeyword: '',
+      visibleColumns: VISIBLE_COLUMNS,
+    });
   } finally {
     await browser.close();
   }
@@ -1415,6 +1451,9 @@ async function authFromChrome(opts) {
   try {
     if (process.platform === 'win32') authFromChromeWindows(opts);
     else authFromChromeUnix(opts);
+    const statePath = path.resolve(opts.state || DEFAULT_STATE);
+    await verifyArkState(statePath, opts);
+    console.log('==> Ark session verified');
   } catch (err) {
     console.error(`==> Chrome cookie export failed: ${err.message}`);
     console.error('==> falling back to interactive Playwright login (auth-login)');

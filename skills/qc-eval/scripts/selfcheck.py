@@ -37,6 +37,7 @@ from lib.writing_style import (  # noqa: E402
 from check_prompt_cheat import build_notes  # noqa: E402
 from lib.g1 import (  # noqa: E402
     FEISHU_DIRTY_TAG_OPTIONS,
+    PERIOD,
     is_empty_feishu_dirty_tag,
     is_feishu_dirty_tag_header,
     sheet_model_label,
@@ -73,7 +74,7 @@ _MACHINE_QC_REASON_HEADER = "错误原因"
 _PLATFORM_AUDIT_HEADER = "一次质检平台审核理由（按模型）"
 _PROMPT_QUALITY_NOTE_HEADER = "题目质量说明"
 _HIGH_QUALITY_FEEDBACK_VALUE = "高质量"
-_CURRENT_PERIODS = {"G1-new", "g2-new"}
+_CURRENT_PERIODS = {PERIOD}
 
 TASK_REDLINE_OPTIONS = {
     "毫无意义的题目",
@@ -109,9 +110,9 @@ def detect_period(headers: dict[str, int]) -> str:
         return "G1-new"
     if (
         "一次质检平台审核理由（按模型）" in headers
-        and any(re.match(r"S\d+反馈质量（作业质量）$", h) for h in headers)
+        and any(h.endswith(_MODEL_RATING_SUFFIX) for h in headers)
     ):
-        return "g2-new"
+        return PERIOD
     return "38期"
 
 
@@ -795,7 +796,7 @@ def load_qc_cells(task_id: str) -> dict | None:
 
 
 def task_upload_collection_issues(task_id: str) -> list[str]:
-    """Require g2-new first-round uploads to be collected before delivery."""
+    """Require current-period first-round uploads before delivery."""
     ark_dir = REPO_ROOT / "tasks" / task_id / "ark_g1"
     task_path = ark_dir / "task.json"
     manifest_path = ark_dir / "task_uploads.json"
@@ -984,7 +985,7 @@ def main() -> int:
         md_issues.extend(
             check_platform_qc_md(REPO_ROOT / "delivery" / tid / f"{tid}_model_qc_platform.md")
         )
-        if period == "g2-new":
+        if period == PERIOD:
             md_issues.extend(task_upload_collection_issues(tid))
         if bad or md_issues:
             print(f"  [BAD] {tid}  ({period})")

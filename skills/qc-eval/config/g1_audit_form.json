@@ -1,10 +1,10 @@
 {
-  "period": "g2-new",
-  "project_id": 286,
+  "period": "42期",
+  "project_id": 313,
   "source": {
-    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/286/task/6162",
-    "task_id": 6162,
-    "task_title": "网页端新增K线训练营",
+    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/313/task/6674",
+    "task_id": 6674,
+    "task_title": "将离线网络变更评审工具升级为可回放、可比较的策略实验与发布回归平台",
     "note": "质检表单字段沿用当前 Ark 通用结构；逐模型 review URL 由采集结果动态生成。"
   },
   "page": {

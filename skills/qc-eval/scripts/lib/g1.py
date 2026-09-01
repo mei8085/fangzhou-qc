@@ -10,19 +10,21 @@ from .paths import REPO_ROOT, SKILL_DIR, default_g1_source_xlsx
 
 CONFIG_PATH = SKILL_DIR / "config" / "g1.json"
 _FALLBACK_CONFIG = {
-    "period": "g2-new",
-    "project_id": 286,
-    "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/286?tab=review",
-    "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/286/review/{taskModelRunId}?mode=audit",
+    "period": "42期",
+    "project_id": 313,
+    "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/313/task/6674",
+    "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/313/review/{taskModelRunId}?mode=audit",
     "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
-    "source_xlsx": "docs/g2-new.xlsx",
+    "source_xlsx": "docs/42.xlsx",
     "source_sheet": "Sheet1",
-    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=j4S99A",
-    "feishu_sheet_id": "j4S99A",
+    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=GB6aQZ",
+    "feishu_sheet_id": "GB6aQZ",
     "output_subdir": "ark_g1",
     "models": [
-        {"sheet": "S203", "code": "S203", "platform": "obelisk"},
-        {"sheet": "S450", "code": "S450", "platform": "notch"},
+        {"sheet": "0825D", "code": "0825D", "platform": "visor"},
+        {"sheet": "0825E", "code": "0825E", "platform": "wicket"},
+        {"sheet": "0819K", "code": "0819K", "platform": "xeric"},
+        {"sheet": "GLM-5.3", "code": "GLM-5.3", "platform": "yew"},
     ],
 }
 
@@ -97,7 +99,7 @@ PLATFORM_CODES = list(CODE_TO_PLATFORM.values())
 def sheet_model_label(sheet_name: str) -> str:
     """Return the Feishu audit-reason label with the Ark platform codeName.
 
-    Example: ``S203`` -> ``S203（obelisk）``. Unknown sheet names
+    Example: ``0825D`` -> ``0825D（visor）``. Unknown sheet names
     are returned unchanged so other periods keep their original prefixes.
     """
     name = str(sheet_name or "").strip()

@@ -11,7 +11,7 @@
  *
  * Usage:
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6162 --only obelisk
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6674 --only visor
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --dry-run
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --headed
  */
@@ -25,6 +25,7 @@ const SKILL_DIR = path.resolve(HERE, '..');
 const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..');
 const DEFAULT_STATE = path.join(SKILL_DIR, '.ark_platform_state.json');
 const FORM_TEMPLATE = path.join(SKILL_DIR, 'config', 'g1_audit_form.json');
+const CONFIG_PATH = path.join(SKILL_DIR, 'config', 'g1.json');
 
 const AUDIT_PANEL = '[data-testid="crowdtest-review-panel-audit"]';
 const EVAL_PANEL = '[data-testid="crowdtest-review-panel-evaluation"]';
@@ -275,8 +276,10 @@ function sameEvalSnapshot(before, after) {
 }
 
 async function openAuditPage(page, row) {
+  const config = fs.existsSync(CONFIG_PATH) ? readJSON(CONFIG_PATH) : {};
+  const projectId = config.project_id || 313;
   const url = row.audit_url
-    || `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/286/review/${row.task_model_run_id}?mode=audit`;
+    || `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${row.task_model_run_id}?mode=audit`;
   let lastErr;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {

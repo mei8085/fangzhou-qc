@@ -14,9 +14,9 @@ from tasks/<TASK_ID>/qc_cells.json after the rebuild.
 
 Usage:
     push_xlsx.py <TASK_ID> [<TASK_ID> ...]
-        [--source <repo>/docs/g2-new.xlsx]
+        [--source <repo>/docs/42.xlsx]
         [--sheet Sheet1]
-        [--period g2-new]
+        [--period 42期]
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ SHEET_G1 = DEFAULT_SHEET
 MACHINE_QC_HEADER = "机器质检结果是否正确"
 MACHINE_QC_OPTIONS = ("正确", "部分正确可参考", "错误")
 PERIOD_PRESETS = {
-    "g2-new": (SOURCE_G1, SHEET_G1),
+    "42期": (SOURCE_G1, SHEET_G1),
     "38期": (SOURCE_38, SHEET_38),
 }
 

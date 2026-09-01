@@ -60,7 +60,8 @@ def load_rows(path: Path, sheet_name: str | None) -> tuple[str, int, dict[str, i
             "row": r,
             "task_id": task_id,
             "task": task,
-            "user": cell_text(ws.cell(r, headers["做题用户"]).value) if "做题用户" in headers else "",
+            "user": cell_text(ws.cell(r, headers.get("做题用户") or headers.get("用户名")).value)
+            if headers.get("做题用户") or headers.get("用户名") else "",
             "reviewer": cell_text(ws.cell(r, headers["质检人"]).value) if "质检人" in headers else "",
             "supplier": cell_text(ws.cell(r, headers["所属商"]).value) if "所属商" in headers else "",
             "label": cell_text(ws.cell(r, headers["label"]).value) if "label" in headers else "",

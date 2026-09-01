@@ -6,8 +6,7 @@ name. The script re-reads the remote sheet, locates the row by `任务ID`, and
 refuses to write unless the remote task title matches the local delivery
 workbook's task title.
 
-Default target:
-  https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=j4S99A
+Default target is loaded from skills/qc-eval/config/g1.json.
 
 Usage:
   python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
