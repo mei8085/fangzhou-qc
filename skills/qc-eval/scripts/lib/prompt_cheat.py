@@ -64,6 +64,12 @@ NEG_PAD = re.compile(
     re.I,
 )
 
+NEG_ADD_QUOTA = re.compile(
+    r"(?:不要|别|禁止|切勿|不得).{0,16}(?:自行)?追加.{0,80}"
+    r"(?:轮次|次数|tool[- ]?calls?|xx\s*次|\d+\s*次)",
+    re.I,
+)
+
 HIT_PATTERNS = [
     re.compile(ROUND_NOUN + r".{0,24}" + QUOTA_VERB + r".{0,16}" + NUMBER, re.I),
     re.compile(QUOTA_VERB + r".{0,16}" + NUMBER + r".{0,12}" + ROUND_NOUN, re.I),
@@ -171,7 +177,7 @@ def extract_prompt_text(payload: Any) -> str:
 
 
 def _line_is_negative(line: str) -> bool:
-    return bool(NEG_PAD.search(line))
+    return bool(NEG_PAD.search(line) or NEG_ADD_QUOTA.search(line))
 
 
 def _line_hits(line: str) -> list[str]:
