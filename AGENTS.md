@@ -1,4 +1,4 @@
-﻿# 仓库说明（Codex / 通用 Agent 入口）
+# 仓库说明（Codex / 通用 Agent 入口）
 
 方舟 coding 众测质检工作仓库。
 
@@ -11,10 +11,10 @@
 
 ## 配置依赖
 
-- 数据源：42 期从本地 `docs/42.xlsx` 按任务ID读取；交付回写飞书 `sheet=GB6aQZ`。具体流程以 `skills/qc-eval/SKILL.md` 为准
+- 数据源：43 期从本地 `docs/43.xlsx` 按任务ID读取；交付回写飞书 `sheet=nH0hX0`。具体流程以 `skills/qc-eval/SKILL.md` 为准
 - Python 3 + Pillow + openpyxl：`pip3 install Pillow openpyxl`（命令优先 `python3`，Windows 可 `python`）
 - Node.js + Playwright：在 `skills/qc-eval/` 内 `npm install` + 一次 `node node_modules/playwright/cli.js install chromium`
-- Ark 平台登录态：`node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome`（失败则 `auth-login`）导出到 `skills/qc-eval/.ark_platform_state.json`（gitignored）
+- Ark 平台登录态：`node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome` 默认从 Chrome 的 `quan-134` 个人资料（磁盘目录 `Profile 4`）导出到 `skills/qc-eval/.ark_platform_state.json`（gitignored）；失败则 `auth-login`
 
 ## 多 CLI 兼容
 

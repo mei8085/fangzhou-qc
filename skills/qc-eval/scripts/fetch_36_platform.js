@@ -85,14 +85,14 @@ function parseArgs(argv) {
 
 function usage(code = 2) {
   console.error(`usage:
-  node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json] [--profile Default] [--chrome-user-data-dir <dir>]
+  node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json] [--profile <profile-dir>] [--chrome-user-data-dir <dir>]
   node skills/qc-eval/scripts/fetch_38_platform.js auth-login [--state skills/qc-eval/.ark_platform_state.json] [--url <login-url>]
   node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id 4267
   node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 (--task-id 475 | --task-title <title>) --sheet-task-id <任务ID> [--state <state.json>] [--tasks-dir tasks] [--skip-workspace] [--skip-trajectory] [--keep-existing] [--runs 1702,1701]
   node skills/qc-eval/scripts/fetch_38_platform.js find-project (--task-id 475 | --task-title <title>) [--projects 230-270|256] [--state <state.json>]
 
 notes:
-  auth-from-chrome copies volcengine cookies from the local Chrome profile (Windows VSS / macOS Keychain / Linux).
+  auth-from-chrome copies volcengine cookies from the local Chrome profile (Windows VSS / macOS Keychain / Linux). The default profile comes from config/g1.json chrome_profile when present, otherwise Default.
   If cookie export fails, it falls back to auth-login (headed Playwright window).
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
   collect reads first-round Prompt uploads, task/model rows, per-run evaluation/audit data, 下载列表, workspace zip, and session trajectory JSON.
@@ -1064,6 +1064,11 @@ function defaultChromeUserDataDir() {
   return path.join(home, 'AppData', 'Local', 'Google', 'Chrome', 'User Data');
 }
 
+function defaultChromeProfile() {
+  const cfg = loadG1Config() || {};
+  return process.env.QC_CHROME_PROFILE || cfg.chrome_profile || 'Default';
+}
+
 function copyChromeCookieFiles(userDataDir, profile, tempDir) {
   const profileDir = path.join(userDataDir, profile);
   const cookieDirs = [path.join(profileDir, 'Network'), profileDir];
@@ -1223,7 +1228,7 @@ function exportCookiesWithPython(cookieCopy, localStateCopy, statePath, extraEnv
 
 function authFromChromeWindows(opts) {
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
-  const profile = opts.profile || 'Default';
+  const profile = opts.profile || defaultChromeProfile();
   const userDataDir = opts['chrome-user-data-dir'] ||
     path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'User Data');
   const resolvedUserDataDir = path.resolve(userDataDir);
@@ -1261,7 +1266,7 @@ Write-Output $id
 
 function authFromChromeUnix(opts) {
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
-  const profile = opts.profile || 'Default';
+  const profile = opts.profile || defaultChromeProfile();
   const userDataDir = path.resolve(opts['chrome-user-data-dir'] || defaultChromeUserDataDir());
   if (!fs.existsSync(userDataDir)) {
     throw new Error(`Chrome user data dir not found: ${userDataDir}`);

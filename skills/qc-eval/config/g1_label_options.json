@@ -1,5 +1,5 @@
 {
-  "period": "42期",
+  "period": "43期",
   "header": "label",
   "source": [
     "/Users/quan/Downloads/1.png",
@@ -21,35 +21,110 @@
   "heuristics": [
     {
       "label": "Coding Agent / 测试与质量保障",
-      "keywords": ["测试", "质量", "质保", "验收", "覆盖率", "审查", "audit", "verify", "e2e", "fixture", "golden", "qa"]
+      "keywords": [
+        "测试",
+        "质量",
+        "质保",
+        "验收",
+        "覆盖率",
+        "审查",
+        "audit",
+        "verify",
+        "e2e",
+        "fixture",
+        "golden",
+        "qa"
+      ]
     },
     {
       "label": "Coding Agent / 部署与运维",
-      "keywords": ["部署", "运维", "发布", "上线", "docker", "k8s", "kubernetes", "ci", "cd", "pipeline", "监控", "告警"]
+      "keywords": [
+        "部署",
+        "运维",
+        "发布",
+        "上线",
+        "docker",
+        "k8s",
+        "kubernetes",
+        "ci",
+        "cd",
+        "pipeline",
+        "监控",
+        "告警"
+      ]
     },
     {
       "label": "Coding Agent / 迁移任务",
-      "keywords": ["迁移", "migration", "升级", "移植", "从.*迁到", "迁到"]
+      "keywords": [
+        "迁移",
+        "migration",
+        "升级",
+        "移植",
+        "从.*迁到",
+        "迁到"
+      ]
     },
     {
       "label": "Coding Agent / 数据科学",
-      "keywords": ["数据科学", "机器学习", "模型训练", "特征", "预测", "统计", "可视化", "notebook", "pandas", "sklearn"]
+      "keywords": [
+        "数据科学",
+        "机器学习",
+        "模型训练",
+        "特征",
+        "预测",
+        "统计",
+        "可视化",
+        "notebook",
+        "pandas",
+        "sklearn"
+      ]
     },
     {
       "label": "Coding Agent / 文档生成",
-      "keywords": ["文档", "readme", "说明书", "报告生成", "生成报告", "接口文档", "使用手册"]
+      "keywords": [
+        "文档",
+        "readme",
+        "说明书",
+        "报告生成",
+        "生成报告",
+        "接口文档",
+        "使用手册"
+      ]
     },
     {
       "label": "Coding Agent / 代码重构",
-      "keywords": ["重构", "refactor", "架构调整", "代码整理", "模块拆分", "解耦"]
+      "keywords": [
+        "重构",
+        "refactor",
+        "架构调整",
+        "代码整理",
+        "模块拆分",
+        "解耦"
+      ]
     },
     {
       "label": "Coding Agent / 代码库理解",
-      "keywords": ["代码库理解", "阅读代码", "梳理", "分析代码", "定位逻辑", "代码走读"]
+      "keywords": [
+        "代码库理解",
+        "阅读代码",
+        "梳理",
+        "分析代码",
+        "定位逻辑",
+        "代码走读"
+      ]
     },
     {
       "label": "Coding Agent / Bug Fix",
-      "keywords": ["bug", "修复", "缺陷", "报错", "异常", "失败", "fix", "错误"]
+      "keywords": [
+        "bug",
+        "修复",
+        "缺陷",
+        "报错",
+        "异常",
+        "失败",
+        "fix",
+        "错误"
+      ]
     }
   ]
 }

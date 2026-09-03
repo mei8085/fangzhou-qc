@@ -14,9 +14,9 @@ from tasks/<TASK_ID>/qc_cells.json after the rebuild.
 
 Usage:
     push_xlsx.py <TASK_ID> [<TASK_ID> ...]
-        [--source <repo>/docs/42.xlsx]
+        [--source <repo>/docs/43.xlsx]
         [--sheet Sheet1]
-        [--period 42期]
+        [--period 43期]
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ SHEET_G1 = DEFAULT_SHEET
 MACHINE_QC_HEADER = "机器质检结果是否正确"
 MACHINE_QC_OPTIONS = ("正确", "部分正确可参考", "错误")
 PERIOD_PRESETS = {
+    "43期": (SOURCE_G1, SHEET_G1),
     "42期": (SOURCE_G1, SHEET_G1),
     "38期": (SOURCE_38, SHEET_38),
 }
@@ -114,21 +115,27 @@ def derive_high_quality_task(sheet: dict):
     """Return 是/否 for the sheet's high-quality-task flag.
 
     The 38期 sheet has a separate yes/no column next to task quality, but it is
-    not a duplicate of 任务质量（题目质量）. It follows the overall model-feedback
-    quality: all model feedback high-quality => 是; any 合格/不合格 => 否.
+    not a duplicate of 任务质量（题目质量）. It is only 是 when the task quality and
+    every model feedback quality are all 高质量; any lower task/model rating => 否.
     """
+    explicit = None
     for key in ("is_high_quality_task", "high_quality_task", "是否是高质量题目"):
         value = sheet.get(key)
         if value is not None and str(value).strip():
-            return value
+            explicit = value
+            break
+    prompt_quality = str(sheet.get("prompt_quality") or "").strip()
     model_ratings = [
         str(m.get("rating") or "").strip()
         for m in (sheet.get("models") or {}).values()
         if str(m.get("rating") or "").strip()
     ]
-    if model_ratings:
-        return "是" if all(r == HIGH_QUALITY_PROMPT_VALUE for r in model_ratings) else "否"
-    return None
+    if prompt_quality and model_ratings:
+        all_high = prompt_quality == HIGH_QUALITY_PROMPT_VALUE and all(
+            r == HIGH_QUALITY_PROMPT_VALUE for r in model_ratings
+        )
+        return "是" if all_high else "否"
+    return explicit
 
 
 def derive_normal_task(sheet: dict):

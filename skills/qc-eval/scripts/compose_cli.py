@@ -4,7 +4,8 @@ CLI/runtime output whenever possible, with test/report output as supporting
 evidence.
 
 Outputs (under delivery/<TASK_ID>/screenshots/):
-    <COL>_01_cli.png        — actual CLI command output, or existing CLI log
+    <COL>_NN_cmd_*.png      — one terminal panel per command in an existing CLI log
+    <COL>_NN_cli.png        — actual CLI command output when no segmented log exists
     <COL>_02_test.png       — terminal output of the project test command
     <COL>_03_report.png     — head of generated reports/*.md or *.txt
     <COL>_verify.png        — direct copy for one panel, otherwise side-by-side composite
@@ -59,6 +60,7 @@ from PIL import Image, ImageDraw, ImageChops
 
 REPO_ROOT = HERE.parent.parent.parent
 MAX_TERMINAL_PANEL_WIDTH = int(os.environ.get("QC_TERMINAL_PANEL_MAX_WIDTH", "1280"))
+MAX_COMMAND_SECTION_LINES = int(os.environ.get("QC_CLI_SECTION_MAX_LINES", "90"))
 
 # CLI evidence is ASCII-heavy. CJK proportional faces (PingFang etc.) make
 # digits such as 4 lose the crossbar; use Menlo/Consolas for terminal panels.
@@ -183,7 +185,7 @@ def run_test(model_dir: Path) -> str:
     return run_command(model_dir, detect_test_command(model_dir))
 
 
-def read_existing_cli_log(task_id: str, code: str, sheet_label: str) -> str | None:
+def find_existing_cli_log(task_id: str, code: str, sheet_label: str) -> Path | None:
     logs_dir = REPO_ROOT / "tasks" / task_id / "logs"
     if not logs_dir.exists():
         return None
@@ -200,7 +202,56 @@ def read_existing_cli_log(task_id: str, code: str, sheet_label: str) -> str | No
     hits = sorted({p for p in hits if p.is_file()})
     if not hits:
         return None
-    return hits[0].read_text(encoding="utf-8", errors="replace").strip()
+    return hits[0]
+
+
+def read_existing_cli_log(task_id: str, code: str, sheet_label: str) -> str | None:
+    hit = find_existing_cli_log(task_id, code, sheet_label)
+    if not hit:
+        return None
+    return hit.read_text(encoding="utf-8", errors="replace").strip()
+
+
+def _clip_terminal_section(text: str, max_lines: int = MAX_COMMAND_SECTION_LINES) -> str:
+    """Keep command evidence readable by cropping long all-pass logs."""
+    lines = clean_terminal_text(text).splitlines()
+    if len(lines) <= max_lines:
+        return "\n".join(lines)
+    head = min(12, max_lines // 3)
+    tail = max_lines - head - 1
+    return "\n".join(
+        lines[:head]
+        + [f"... (cropped for screenshot readability, total {len(lines)} lines)"]
+        + lines[-tail:]
+    )
+
+
+def split_cli_log_by_command(text: str) -> list[tuple[str, str]]:
+    """Split a saved terminal log into one section per shell command.
+
+    Logs written by verify_next_u03l.py use repeated `$ command` sections and
+    `exit=N` trailers. Rendering them separately avoids a single very tall
+    evidence image while preserving the actual command and outcome.
+    """
+    sections: list[tuple[str, str]] = []
+    current: list[str] = []
+    current_cmd = ""
+    for line in clean_terminal_text(text).splitlines():
+        if line.startswith("$ "):
+            if current:
+                sections.append((current_cmd, _clip_terminal_section("\n".join(current))))
+            current = [line]
+            current_cmd = line[2:].strip()
+        elif current:
+            current.append(line)
+    if current:
+        sections.append((current_cmd, _clip_terminal_section("\n".join(current))))
+    return sections
+
+
+def safe_command_slug(command: str, max_len: int = 36) -> str:
+    text = re.sub(r"[^0-9A-Za-z]+", "_", command.strip()).strip("_").lower()
+    return (text[:max_len].strip("_") or "command")
 
 
 def run_cli_or_read_log(task_id: str, code: str, sheet_label: str, model_dir: Path) -> str | None:
@@ -442,15 +493,43 @@ def compose_one(task_id: str, code: str, sheet_label: str, model_dir: Path, out_
     tag = sheet_label.replace(" ", "_")
 
     panels: list[tuple[str, str, Path]] = []
-    cli_text = run_cli_or_read_log(task_id, code, sheet_label, model_dir)
-    if cli_text:
-        panels.append(("cli", cli_text, out_dir / f"{tag}_01_cli.png"))
+    # Drop stale monolithic terminal panels before rebuilding split evidence.
+    for stale in out_dir.glob(f"{tag}_*.png"):
+        if re.match(rf"{re.escape(tag)}_\d+_(?:cli(?:_.*)?|test(?:_.*)?|report(?:_.*)?|cmd_.+)\.png$", stale.name):
+            stale.unlink()
+
+    existing_numbers = [
+        int(m.group(1))
+        for p in out_dir.glob(f"{tag}_*.png")
+        if (m := re.match(rf"{re.escape(tag)}_(\d+)_", p.name))
+        and not p.name.endswith("_verify.png")
+    ]
+    next_index = (max(existing_numbers) + 1) if existing_numbers else 1
+
+    log_path = find_existing_cli_log(task_id, code, sheet_label)
+    if log_path:
+        sections = split_cli_log_by_command(log_path.read_text(encoding="utf-8", errors="replace"))
+        if sections:
+            for cmd_index, (cmd, text) in enumerate(sections, start=1):
+                path = out_dir / f"{tag}_{next_index:02d}_cmd_{cmd_index:02d}_{safe_command_slug(cmd)}.png"
+                panels.append((f"cmd_{cmd_index:02d}", text, path))
+                next_index += 1
+        else:
+            cli_text = log_path.read_text(encoding="utf-8", errors="replace").strip()
+            panels.append(("cli", cli_text, out_dir / f"{tag}_{next_index:02d}_cli.png"))
+            next_index += 1
     else:
-        panels.append(("test", run_test(model_dir), out_dir / f"{tag}_01_test.png"))
+        cli_text = run_cli_or_read_log(task_id, code, sheet_label, model_dir)
+        if cli_text:
+            panels.append(("cli", cli_text, out_dir / f"{tag}_{next_index:02d}_cli.png"))
+            next_index += 1
+        else:
+            panels.append(("test", run_test(model_dir), out_dir / f"{tag}_{next_index:02d}_test.png"))
+            next_index += 1
 
     report_text = read_report(model_dir, report_rel)
     if not report_text.startswith("<") or "not found>" not in report_text:
-        panels.append(("report", report_text, out_dir / f"{tag}_{len(panels)+1:02d}_report.png"))
+        panels.append(("report", report_text, out_dir / f"{tag}_{next_index:02d}_report.png"))
 
     verify_png = out_dir / f"{tag}_verify.png"
 

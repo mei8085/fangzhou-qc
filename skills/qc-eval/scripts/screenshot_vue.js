@@ -201,16 +201,26 @@ function packageRunner(entryDir) {
   return { bin: 'npm', install: 'npm install --prefer-offline --no-audit --no-fund --loglevel=error', run: 'npm run dev' };
 }
 
-function ensureViteBin(entryDir) {
+function isNextProject(entryDir) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(entryDir, 'package.json'), 'utf8'));
+    return Boolean((pkg.dependencies && pkg.dependencies.next) || (pkg.devDependencies && pkg.devDependencies.next));
+  } catch {
+    return false;
+  }
+}
+
+function ensureProjectBin(entryDir) {
   // The tarball's node_modules ships dependency code but no .bin shims (Linux
-  // symlinks were skipped during extraction on Windows). Run `npm install` once
-  // per entry dir to recreate the shims if vite is missing.
-  const viteShim = process.platform === 'win32'
-    ? path.join(entryDir, 'node_modules', '.bin', 'vite.cmd')
-    : path.join(entryDir, 'node_modules', '.bin', 'vite');
-  if (fs.existsSync(viteShim)) return;
+  // symlinks were skipped during extraction on Windows). Run the package
+  // manager once per entry dir to recreate the needed dev-server shim.
+  const binName = isNextProject(entryDir) ? 'next' : 'vite';
+  const shim = process.platform === 'win32'
+    ? path.join(entryDir, 'node_modules', '.bin', `${binName}.cmd`)
+    : path.join(entryDir, 'node_modules', '.bin', binName);
+  if (fs.existsSync(shim)) return;
   const pm = packageRunner(entryDir);
-  console.log(`     [bin] no vite shim at ${viteShim} — running ${pm.install} (one-time)`);
+  console.log(`     [bin] no ${binName} shim at ${shim} — running ${pm.install} (one-time)`);
   const r = spawnSync(pm.install, {
     cwd: entryDir, shell: true, stdio: 'inherit',
   });
@@ -218,11 +228,15 @@ function ensureViteBin(entryDir) {
 }
 
 async function startDevServer(entryDir, port) {
-  ensureViteBin(entryDir);
+  ensureProjectBin(entryDir);
   // Need shell:true on Windows because npm is a .cmd shim — Node 20+ requires
   // shell:true to spawn it. The shell also handles `--` argument passthrough.
   const pm = packageRunner(entryDir);
-  const cmd = `${pm.run} -- --port ${port} --strictPort`;
+  // Next project scripts in these tasks often hard-code --port 3210, so call
+  // next directly to guarantee each model gets its own screenshot port.
+  const cmd = isNextProject(entryDir)
+    ? `npx next dev --port ${port}`
+    : `${pm.run} -- --port ${port} --strictPort`;
   console.log(`     starting "${cmd}" in ${entryDir}`);
   const child = spawn(cmd, {
     cwd: entryDir,

@@ -10,21 +10,21 @@ from .paths import REPO_ROOT, SKILL_DIR, default_g1_source_xlsx
 
 CONFIG_PATH = SKILL_DIR / "config" / "g1.json"
 _FALLBACK_CONFIG = {
-    "period": "42期",
-    "project_id": 313,
-    "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/313/task/6674",
-    "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/313/review/{taskModelRunId}?mode=audit",
+    "period": "43期",
+    "project_id": 315,
+    "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/315/task/6936",
+    "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/315/review/{taskModelRunId}?mode=audit",
     "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
-    "source_xlsx": "docs/42.xlsx",
+    "source_xlsx": "docs/43.xlsx",
     "source_sheet": "Sheet1",
-    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=GB6aQZ",
-    "feishu_sheet_id": "GB6aQZ",
+    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=nH0hX0",
+    "feishu_sheet_id": "nH0hX0",
     "output_subdir": "ark_g1",
     "models": [
-        {"sheet": "0825D", "code": "0825D", "platform": "visor"},
-        {"sheet": "0825E", "code": "0825E", "platform": "wicket"},
-        {"sheet": "0819K", "code": "0819K", "platform": "xeric"},
-        {"sheet": "GLM-5.3", "code": "GLM-5.3", "platform": "yew"},
+        {"sheet": "0819K-256K", "code": "0819K-256K", "platform": "drawbridge"},
+        {"sheet": "0819K-1M", "code": "0819K-1M", "platform": "caldera"},
+        {"sheet": "0819K-keepall-256K", "code": "0819K-keepall-256K", "platform": "bramble"},
+        {"sheet": "0819K-keepall-1M", "code": "0819K-keepall-1M", "platform": "abacus"},
     ],
 }
 
@@ -99,7 +99,7 @@ PLATFORM_CODES = list(CODE_TO_PLATFORM.values())
 def sheet_model_label(sheet_name: str) -> str:
     """Return the Feishu audit-reason label with the Ark platform codeName.
 
-    Example: ``0825D`` -> ``0825D（visor）``. Unknown sheet names
+    Example: ``0819K-256K`` -> ``0819K-256K（drawbridge）``. Unknown sheet names
     are returned unchanged so other periods keep their original prefixes.
     """
     name = str(sheet_name or "").strip()

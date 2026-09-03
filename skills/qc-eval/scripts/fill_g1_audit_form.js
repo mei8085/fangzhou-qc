@@ -10,10 +10,10 @@
  *   - This script cannot submit. Humans review the draft and submit later.
  *
  * Usage:
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6674 --only visor
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --dry-run
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 5891 --headed
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6936
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6936 --only drawbridge
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6936 --dry-run
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6936 --headed
  */
 
 const { chromium } = require('playwright');

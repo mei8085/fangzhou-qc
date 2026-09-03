@@ -50,7 +50,10 @@ DEFECT_TAGS = {
 
 TAG_ISSUE_IN_NOTE = re.compile(r"标签|错选")
 BRACKET_TAG = re.compile(r"^【([^】]+)】")
-SELFTEST_INSUFFICIENT_RE = re.compile(r"(?:自测|测试|验证).{0,12}(?:不充分|不够充分|不足|遗漏)")
+SELFTEST_INSUFFICIENT_RE = re.compile(
+    r"(?:自测|自查|测试|验证|检查).{0,12}(?:不充分|不够充分|不足|遗漏)|"
+    r"(?:没有|未|没).{0,8}(?:检查|检测|测出|发现).{0,10}(?:Bug|bug|错误|问题|缺陷)"
+)
 NO_VISIBLE_BUG_RE = re.compile(
     r"(?:无|没有|未发现|不存在).{0,10}(?:实锤|明确|明显|可见)?.{0,6}(?:Bug|bug|缺陷|故障)|"
     r"无硬伤"

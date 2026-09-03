@@ -6,9 +6,10 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'g1.json');
-const FALLBACK_PROJECT_ID = 313;
+const FALLBACK_PROJECT_ID = 315;
 const FALLBACK_PROJECT_URL =
-  'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/313/task/6674';
+  'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/315/task/6936';
+const FALLBACK_CHROME_PROFILE = 'Profile 4';
 
 function loadConfig() {
   try {
@@ -38,6 +39,9 @@ function loadConfig() {
   }
   if ((cmd === 'auth-login' || cmd === 'auth-from-chrome') && !has('--url')) {
     argv.push('--url', projectUrl);
+  }
+  if (cmd === 'auth-from-chrome' && !has('--profile')) {
+    argv.push('--profile', cfg.chrome_profile || FALLBACK_CHROME_PROFILE);
   }
   if (cmd === 'find-project' && !has('--projects')) {
     argv.push('--projects', projectId);

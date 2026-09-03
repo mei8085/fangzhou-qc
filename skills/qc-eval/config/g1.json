@@ -1,15 +1,17 @@
 {
-  "period": "42期",
-  "project_id": 313,
-  "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/313/task/6674",
-  "task_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/313/task/{taskId}",
-  "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/313/review/{taskModelRunId}?mode=audit",
+  "period": "43期",
+  "project_id": 315,
+  "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/315/task/6936",
+  "chrome_profile": "Profile 4",
+  "chrome_profile_label": "quan-134",
+  "task_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/315/task/{taskId}",
+  "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/315/review/{taskModelRunId}?mode=audit",
   "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
   "audit_form_fill_script": "skills/qc-eval/scripts/fill_g1_audit_form.js",
-  "source_xlsx": "docs/42.xlsx",
+  "source_xlsx": "docs/43.xlsx",
   "source_sheet": "Sheet1",
-  "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=GB6aQZ",
-  "feishu_sheet_id": "GB6aQZ",
+  "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=nH0hX0",
+  "feishu_sheet_id": "nH0hX0",
   "feishu_dirty_tag_options": [
     "模型资源问题:API请求超时/轨迹大量error",
     "OpenClaw/Hermes框架问题",
@@ -24,24 +26,24 @@
   "output_subdir": "ark_g1",
   "models": [
     {
-      "sheet": "0825D",
-      "code": "0825D",
-      "platform": "visor"
+      "sheet": "0819K-256K",
+      "code": "0819K-256K",
+      "platform": "drawbridge"
     },
     {
-      "sheet": "0825E",
-      "code": "0825E",
-      "platform": "wicket"
+      "sheet": "0819K-1M",
+      "code": "0819K-1M",
+      "platform": "caldera"
     },
     {
-      "sheet": "0819K",
-      "code": "0819K",
-      "platform": "xeric"
+      "sheet": "0819K-keepall-256K",
+      "code": "0819K-keepall-256K",
+      "platform": "bramble"
     },
     {
-      "sheet": "GLM-5.3",
-      "code": "GLM-5.3",
-      "platform": "yew"
+      "sheet": "0819K-keepall-1M",
+      "code": "0819K-keepall-1M",
+      "platform": "abacus"
     }
   ]
 }

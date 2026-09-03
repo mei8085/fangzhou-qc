@@ -546,12 +546,17 @@ def high_quality_task_issues(ws, headers: dict[str, int]) -> dict[int, list[str]
         for _model, rating_col, _note_col in model_rating_note_cols(headers)
         if cell_text(ws, rating_col)
     ]
-    if model_ratings:
-        expected = "是" if all(r == _HIGH_QUALITY_FEEDBACK_VALUE for r in model_ratings) else "否"
+    task_rating = cell_text(ws, headers.get(_TASK_RATING_HEADER))
+    if task_rating and model_ratings:
+        all_high = task_rating == _HIGH_QUALITY_FEEDBACK_VALUE and all(
+            r == _HIGH_QUALITY_FEEDBACK_VALUE for r in model_ratings
+        )
+        expected = "是" if all_high else "否"
         if value != expected:
             return {
                 col: [
-                    f"must-match-overall-feedback-quality:{expected}",
+                    f"must-match-task-and-feedback-quality:{expected}",
+                    f"task-rating:{task_rating}",
                     f"model-ratings:{'/'.join(model_ratings)}",
                 ]
             }

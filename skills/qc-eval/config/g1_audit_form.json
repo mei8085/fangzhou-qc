@@ -1,10 +1,10 @@
 {
-  "period": "42期",
-  "project_id": 313,
+  "period": "43期",
+  "project_id": 315,
   "source": {
-    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/313/task/6674",
-    "task_id": 6674,
-    "task_title": "将离线网络变更评审工具升级为可回放、可比较的策略实验与发布回归平台",
+    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/315/task/6936",
+    "task_id": 6936,
+    "task_title": "批量制作工作台与交付进度中心",
     "note": "质检表单字段沿用当前 Ark 通用结构；逐模型 review URL 由采集结果动态生成。"
   },
   "page": {

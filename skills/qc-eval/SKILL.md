@@ -1,45 +1,46 @@
 ---
 name: qc-eval
-description: 42 期方舟 coding 众测质检工作流。质检题目从本地 docs/42.xlsx 按任务ID读取，不从飞书同步源表。标注与产物从 Ark 平台 project 313 按任务ID搜索后进入任务详情采集 4 个模型（0825D/visor、0825E/wicket、0819K/xeric、GLM-5.3/yew）的模型运行与下载列表。交付回写飞书 sheet=GB6aQZ。适用于 Cursor、Claude Code、Codex，以及 Windows / macOS / Linux。
+description: 43 期方舟 coding 众测质检工作流。质检题目从本地 docs/43.xlsx 按任务ID读取，不从飞书同步源表。标注与产物从 Ark 平台 project 315 按任务ID搜索后进入任务详情采集 4 个模型（0819K-256K/drawbridge、0819K-1M/caldera、0819K-keepall-256K/bramble、0819K-keepall-1M/abacus）的模型运行与下载列表。交付回写飞书 sheet=nH0hX0。适用于 Cursor、Claude Code、Codex，以及 Windows / macOS / Linux。
 ---
 
-# 方舟 coding 众测质检 - 42 期工作流技能
+# 方舟 coding 众测质检 - 43 期工作流技能
 
 唯一权威说明文件。`CLAUDE.md`、`AGENTS.md`、`.cursor/rules/qc-eval.mdc`、`.cursor/skills/qc-eval/SKILL.md` 只做入口指引，不复制流程。
 
 配套规范：
 
-- 新规则整理：`spec/36期质检新规则.md`（42 期继续沿用这套质量口径）
+- 新规则整理：`spec/36期质检新规则.md`（43 期继续沿用这套质量口径）
 - 脏数据标签与标准：`spec/Coding场景脏数据标签与标准.md`（平台反馈质检的脏数据标签按此执行）
 - 兼容入口：`spec/方舟coding众测质检流程及规范.md` 已更新为同一套质量规则
 
-## 42 期默认配置
+## 43 期默认配置
 
-- 本地源表：`docs/42.xlsx`（`docs/` 已 gitignore）。可用环境变量 `QC_SOURCE_XLSX` 或 `--source` 覆盖。
+- 本地源表：`docs/43.xlsx`（`docs/` 已 gitignore）。可用环境变量 `QC_SOURCE_XLSX` 或 `--source` 覆盖。
 - 源表不从飞书同步。飞书只作为交付回写目标。
-- 飞书交付表：`https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=GB6aQZ`
-- sheet_id：`GB6aQZ`
-- 本地任务目录名：必须使用源表 `任务ID`，例如 `4267`
-- Ark 平台项目：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/313/task/6674`
-- 任务详情：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/313/task/<任务ID>`
+- 飞书交付表：`https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=nH0hX0`
+- sheet_id：`nH0hX0`
+- Chrome 默认个人资料：`quan-134`（磁盘目录 `Profile 4`）。`auth-from-chrome` 默认从该 Profile 导出方舟平台 cookie；如需临时改用其他 Profile，显式传 `--profile <Profile目录名>`。
+- 本地任务目录名：必须使用源表 `任务ID`，例如 `6936`
+- Ark 平台项目：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/315/task/6936`
+- 任务详情：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/315/task/<任务ID>`
 - 平台检索：以任务ID搜索。任务详情页首轮 Prompt 下的「上传产物」来自任务详情 `attachments`；它与模型侧「模型运行」/「下载列表」/Workspace 是两个独立数据源，不能用模型下载列表是否为空推断首轮上传产物是否存在。下载列表走 `CaseBffV1CrowdtestTaskModelWorkspaceDownloadLatestList`。
 - 模型对应：
 
 | 表头模型 | 代号 | 平台 codeName |
 | --- | --- | --- |
-| 0825D | 0825D | visor |
-| 0825E | 0825E | wicket |
-| 0819K | 0819K | xeric |
-| GLM-5.3 | GLM-5.3 | yew |
+| 0819K-256K | 0819K-256K | drawbridge |
+| 0819K-1M | 0819K-1M | caldera |
+| 0819K-keepall-256K | 0819K-keepall-256K | bramble |
+| 0819K-keepall-1M | 0819K-keepall-1M | abacus |
 
 - 配置文件：`skills/qc-eval/config/g1.json`
-- 任务类型选项：`skills/qc-eval/config/g1_label_options.json`。42 期源表 `label` 为空时，必须从该文件 10 个选项中选择；未在 `qc_cells.json` 显式填写时，交付脚本按任务名和提示词做启发式推断。
-- 平台质检表单模版：`skills/qc-eval/config/g1_audit_form.json`（适用于 project 313；逐模型审核页由采集到的 `taskModelRunId` 动态生成）
+- 任务类型选项：`skills/qc-eval/config/g1_label_options.json`。43 期源表 `label` 为空时，必须从该文件 10 个选项中选择；未在 `qc_cells.json` 显式填写时，交付脚本按任务名和提示词做启发式推断。
+- 平台质检表单模版：`skills/qc-eval/config/g1_audit_form.json`（适用于 project 315；逐模型审核页由采集到的 `taskModelRunId` 动态生成）
 - 质检后填写文件：`delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md` 与 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`
 - 平台质检表单回填（只保存草稿）：`node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>`
 - Ark 平台采集脚本：`node skills/qc-eval/scripts/fetch_g1_platform.js`
 - 本地任务探测：`python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id <任务ID>`
-- 交付 xlsx：`python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 42期`
+- 交付 xlsx：`python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 43期`
 - 飞书回写：默认只允许执行 `python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run` 预检；只有用户明确指令“上传/回写/写入飞书”后，才允许执行带 `--write` 的命令。
 
 ## 运行环境
@@ -48,7 +49,7 @@ description: 42 期方舟 coding 众测质检工作流。质检题目从本地 d
 
 - Python 3：下列命令写 `python3`。Windows 若只有 `python`，把命令中的 `python3` 换成 `python`。也可用 `QC_PYTHON` 指定解释器。
 - 源表路径不要写死盘符。默认见上文「本地源表」。
-- Ark 登录态：`auth-from-chrome` 会从本机 Chrome 导出 volcengine cookie（Windows 用 VSS，macOS 用 Keychain，Linux 用 libsecret）。导出失败时自动打开有头浏览器，改为 `auth-login`。也可直接跑 `node skills/qc-eval/scripts/fetch_g1_platform.js auth-login`。
+- Ark 登录态：`auth-from-chrome` 会从本机 Chrome 的 `quan-134` 个人资料（`Profile 4`）导出 volcengine cookie（Windows 用 VSS，macOS 用 Keychain，Linux 用 libsecret）。导出失败时自动打开有头浏览器，改为 `auth-login`。也可直接跑 `node skills/qc-eval/scripts/fetch_g1_platform.js auth-login`。
 - Cursor 跑 Playwright / 有头登录 / 平台采集时需要本机网络，并批准相应权限；有头登录会弹出 Chrome/Chromium 窗口，需人工完成登录。
 - `lark-cli` 必须在 PATH 中（macOS/Linux 为 `lark-cli`，Windows 可为 `lark-cli.exe`）。
 - 测试机 SSH 别名 `u03l`：只有题目依赖数据库、消息队列、Celery，或交付物自带 docker-compose 且本机不便跑时，才在这台机器上用 Docker 起基础设施。一次性准备见 `skills/qc-eval/remote/README.md`；何时用、用哪条脚本见下文「复测启动与截图」。
@@ -74,7 +75,7 @@ description: 42 期方舟 coding 众测质检工作流。质检题目从本地 d
 
 ## 新规则口径
 
-42 期以用户提供的新规则为准，不沿用更早期历史口径。质量判断仍按 `spec/36期质检新规则.md`。
+43 期以用户提供的新规则为准，不沿用更早期历史口径。质量判断仍按 `spec/36期质检新规则.md`。
 
 ### 出题质量
 
@@ -106,7 +107,7 @@ description: 42 期方舟 coding 众测质检工作流。质检题目从本地 d
 | 合格 | 打分大体合理但存在部分偏差或不完善；或打分、备注、佐证、归因标签有明显问题但未触发红线。 |
 | 不合格 | 反馈完全不可信，或触发红线规则。 |
 
-42 期飞书列“反馈质量（作业质量）”下拉只有 `高质量`、`合格`、`不合格` 三个选项，禁止写 `红线`。若模型反馈触发反馈质量红线或脏数据标签，该模型“反馈质量（作业质量）”填 `不合格`；题目红线写到“红线问题”；逐模型飞书“脏数据标签”必须写成下拉原文，例如 `用户问题:敷衍恶意打分`。非脏数据时该列留空，不要填 `非脏数据`。
+43 期飞书列“反馈质量（作业质量）”下拉只有 `高质量`、`合格`、`不合格` 三个选项，禁止写 `红线`。若模型反馈触发反馈质量红线或脏数据标签，该模型“反馈质量（作业质量）”填 `不合格`；题目红线写到“红线问题”；逐模型飞书“脏数据标签”必须写成下拉原文，例如 `用户问题:敷衍恶意打分`。非脏数据时该列留空，不要填 `非脏数据`。
 
 红线仍需明确证据。截图中明确可见的出题质量红线补充包括：从 Openbenchmark 上找题、用网页生成 PPT 或旅游攻略等静态展示性页面。提示词轮次作弊也按出题质量红线处理，见「提示词轮次作弊闸门」。
 
@@ -159,18 +160,19 @@ python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id 4267
 
 ```bash
 node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome
+# 默认等价于：node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome --profile "Profile 4"
 # cookie 导出失败时（常见于 macOS Chrome v20 / Cursor）改为人工登录：
 node skills/qc-eval/scripts/fetch_g1_platform.js auth-login
 ```
 
-4. 采集 Ark 平台材料。按任务ID搜索 project 313，进入任务详情。必须按以下顺序执行：拉取任务详情与页面提示词；下载首轮 Prompt 下的全部「上传产物」；安全扫描上传文件及压缩包内的 Markdown/文本；把这些文本与页面提示词一起过「提示词轮次作弊闸门」；未作弊时再采集 4 个模型的模型运行、评测、下载列表、Workspace 与轨迹。
+4. 采集 Ark 平台材料。按任务ID搜索 project 315，进入任务详情。必须按以下顺序执行：拉取任务详情与页面提示词；下载首轮 Prompt 下的全部「上传产物」；安全扫描上传文件及压缩包内的 Markdown/文本；把这些文本与页面提示词一起过「提示词轮次作弊闸门」；未作弊时再采集 4 个模型的模型运行、评测、下载列表、Workspace 与轨迹。
 
 ```bash
 node skills/qc-eval/scripts/fetch_g1_platform.js collect --task-id <任务ID>
 python3 skills/qc-eval/scripts/extract_g1_workspaces.py <任务ID>
 ```
 
-脚本默认 `--project 313`，本地目录与平台搜索都用同一个任务ID。输出目录为 `tasks/<任务ID>/ark_g1/`，并写 `tasks/<任务ID>/model_map.json`。
+脚本默认 `--project 315`，本地目录与平台搜索都用同一个任务ID。输出目录为 `tasks/<任务ID>/ark_g1/`，并写 `tasks/<任务ID>/model_map.json`。
 
 首轮「上传产物」固定输出如下，和各模型目录内的 `workspace/`、`download_list.json` 分开：
 
@@ -186,7 +188,7 @@ python3 skills/qc-eval/scripts/extract_g1_workspaces.py <任务ID>
 
 采集在拿到 `task.json` 并完整下载、检查首轮「上传产物」之后，才会跑 `check_prompt_cheat.py --scan-only`。检查范围是页面提示词加上传产物中的 Markdown/文本。命中轮次作弊时**不再下载 workspace zip / 轨迹 / 下载列表**，也不要再去复测产物。
 
-若 4 个平台 codeName 与 `visor,wicket,xeric,yew` 不一致，脚本会停住；只有确认可以部分采集时才加 `--allow-partial`。采集过程中若「下载列表」API 不一致，先停下来与人工核对，不要自行发明下载方式。
+若 4 个平台 codeName 与 `drawbridge,caldera,bramble,abacus` 不一致，脚本会停住；只有确认可以部分采集时才加 `--allow-partial`。采集过程中若「下载列表」API 不一致，先停下来与人工核对，不要自行发明下载方式。
 
 5. **提示词轮次作弊闸门（必须在复测产物之前）**。不要先测完四个模型产物再回头看提示词。脚本读取 `tasks/<任务ID>/prompt.md` 对应的合并材料；若 `task.json` 报告存在首轮上传文件，但 `task_uploads.json` 或文本检查结果缺失/不完整，脚本会直接报错，不得绕过。
 
@@ -229,7 +231,7 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
     "redline_issue": "",
     "redline_note": "",
     "models": {
-      "0825D": {
+      "0819K-256K": {
         "rating": "高质量",
         "note": "1～2 句。高质量：执行过程和产物质量分别与实际情况一致，评分正确。合格：写清一致或不符合的点，并点名哪一项评分偏高或偏低；过程分偏差必须写模型执行过程证据。不合格：点名红线并按脏数据标签写一句。同一题可共用开头，连续几题换句首。",
         "platform_audit_reason": "一句收束：完全可用 / 部分可用 / 完全不可用。不要写高质量、合格、不合格。",
@@ -241,15 +243,15 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 }
 ```
 
-`sheet.models` 的 key 必须是表头模型名：`0825D`、`0825E`、`0819K`、`GLM-5.3`。
+`sheet.models` 的 key 必须是表头模型名：`0819K-256K`、`0819K-1M`、`0819K-keepall-256K`、`0819K-keepall-1M`。
 
 `sheet.models.<模型>.rating` 对应飞书列“反馈质量（作业质量）”，只能填 `高质量`、`合格`、`不合格`。触发反馈红线时也填 `不合格`，不要填 `红线`；红线原因在 `redline_issue` / `redline_note` 和逐模型 `dirty_tag` 中体现。`dirty_tag` 非脏数据时留空；有标签时必须写成飞书下拉原文。
 
-`is_high_quality_task` 对应飞书列“是否是高质量题目”，必须填“是/否”；该字段按模型反馈质量的整体情况判断，不按题目本身经济价值或评测价值判断。通常只有所有模型反馈质量均为“高质量”时填“是”；任一模型反馈质量为“合格”或“不合格”时填“否”。若未写，交付脚本会按 `sheet.models` 中全部模型反馈质量自动推导，无法推导时保持空白并由自检拦截。
+`is_high_quality_task` 对应飞书列“是否是高质量题目”，必须填“是/否”；只有 `prompt_quality` 为“高质量”，且所有模型反馈质量均为“高质量”时才能填“是”。任务质量或任一模型反馈质量为“合格”/“不合格”时填“否”。交付脚本会按 `prompt_quality` 和 `sheet.models` 中全部模型反馈质量自动推导，无法推导时使用显式填写值并由自检拦截不一致结果。
 
-`prompt_quality` 对应飞书列“任务质量（题目质量）”，按题目本身的完整性、经济价值、评测价值和可验证性判断；它可以与“是否是高质量题目”不一致，例如题目本身为“高质量”，但模型反馈整体未达到高质量时，“是否是高质量题目”填“否”。命中提示词轮次作弊时 `prompt_quality` 填 `不合格`，`sheet.prompt_cheat` 填 `true`。
+`prompt_quality` 对应飞书列“任务质量（题目质量）”，按题目本身的完整性、经济价值、评测价值和可验证性判断；它可以与“是否是高质量题目”不一致，例如题目本身为“高质量”，但模型反馈整体未达到高质量时，“是否是高质量题目”填“否”；题目本身为“合格”/“不合格”时，即使全部模型反馈质量为“高质量”，“是否是高质量题目”也填“否”。命中提示词轮次作弊时 `prompt_quality` 填 `不合格`，`sheet.prompt_cheat` 填 `true`。
 
-`label` 对应飞书列“label”。42 期源表该列为空时，需要判断题目真实类型并填入，取值必须来自 `skills/qc-eval/config/g1_label_options.json`。推荐在 `qc_cells.json` 的 `sheet.label` 显式填写；若不填，`push_xlsx.py` 会在本地源表 label 为空时按任务名和提示词启发式补齐。源表 label 已有值时，本地交付不覆盖原值。
+`label` 对应飞书列“label”。43 期源表该列为空时，需要判断题目真实类型并填入，取值必须来自 `skills/qc-eval/config/g1_label_options.json`。推荐在 `qc_cells.json` 的 `sheet.label` 显式填写；若不填，`push_xlsx.py` 会在本地源表 label 为空时按任务名和提示词启发式补齐。源表 label 已有值时，本地交付不覆盖原值。
 
 `category_correct` 对应飞书列“分类是否正确”，必须填“是/否”；判断源表或补齐后的 `label` 是否与任务真实类型一致。
 
@@ -260,19 +262,19 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 7. 生成本地交付物，并生成每个模型对应的平台质检填写文件。
 
 ```bash
-python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 42期
+python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 43期
 python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
 python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
 ```
 
 逐模型平台填写文件输出为 `delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md` 和 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`，字段名、选项与 `skills/qc-eval/config/g1_audit_form.json` 一致。用户明确要求填写平台质检表单时，用 `fill_g1_audit_form.js` 写入网页并只保存草稿；未下达该指令时不要打开审核页去改表单。表单字段为：请选择该任务的质量（高/中/低/不可用）、任务质量备注、请选择该用户的反馈质量（完全可用/部分可用/完全不可用）、反馈质量备注、审核理由、请选择脏数据标签。页面没有「非脏数据」按钮，不选标签即非脏数据。反馈质量备注按档位写 1～2 句，并用飞书档位词（高质量 / 合格 / 不合格）收束；审核理由写一句事实结论，必须用平台选项词（完全可用 / 部分可用 / 完全不可用）收束，禁止写「故高质量」「故合格」「反馈质量为高质量」。审核理由抽出备注里的具体问题点即可，不复制完整备注；必须包含一个简短的产物/反馈事实总结，不要只写「过程 X 分、产物 X 分和产物实测情况一致，反馈完全可用」这类评分一致套话，也不要直接压缩复述反馈质量备注。需要特殊说明时，可在模型数据下写 `platform_audit_reason` 或 `audit_reason` 覆盖默认审核理由。脏数据标签按 `spec/Coding场景脏数据标签与标准.md` 判断后映射到页面选项；可在每个模型数据下写 `dirty_tag`。未写时填写文件输出「不选」。
 
-8. 填写平台质检表单必须听用户指令。用户明确要求“填写平台质检表单 / 保存草稿 / 写入网页质检”后，才把 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json` 填进 `projects/313/review/<taskModelRunId>?mode=audit` 右侧「质检」面板。脚本只改质检表单，并只点「保存草稿」。禁止点「提交审核」「打回」「返回列表」，禁止改「评测打分」、Session 轨迹、Workspace 或附件。提交必须留给人工检查后再点。
+8. 填写平台质检表单必须听用户指令。用户明确要求“填写平台质检表单 / 保存草稿 / 写入网页质检”后，才把 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json` 填进 `projects/315/review/<taskModelRunId>?mode=audit` 右侧「质检」面板。脚本只改质检表单，并只点「保存草稿」。禁止点「提交审核」「打回」「返回列表」，禁止改「评测打分」、Session 轨迹、Workspace 或附件。提交必须留给人工检查后再点。
 
 ```bash
 node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>
 # 只填一个模型、或先看填入结果不点保存：
-# node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID> --only visor
+# node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID> --only drawbridge
 # node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID> --dry-run
 ```
 
@@ -283,7 +285,7 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
 python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-user-instructed
 ```
 
-`push_g1_feishu.py` 会重新读取远端 `GB6aQZ` 对应行的“任务”单元格，并与本地交付 xlsx 的任务名完全一致才允许写入。飞书 `label` 列只在远端单元格为空时写入；若远端已有值，即使本地交付 xlsx 有新 label 也跳过，避免覆盖人工或上游分类。飞书列“一次质检平台审核理由（按模型）”按模型分行，前缀为表头模型名加平台 codeName，例如 `0825D（visor）：……`。“一次质检是否完成”由人工填写，脚本不得写入。非脏数据时不要给「脏数据标签」写入空字符串；脚本会清除单元格内容。已出现「数据无效」的空下拉格，重新 `--write` 即可按同样方式清掉。
+`push_g1_feishu.py` 会重新读取远端 `nH0hX0` 对应行的“任务”单元格，并与本地交付 xlsx 的任务名完全一致才允许写入。飞书 `label` 列只在远端单元格为空时写入；若远端已有值，即使本地交付 xlsx 有新 label 也跳过，避免覆盖人工或上游分类。飞书列“一次质检平台审核理由（按模型）”按模型分行，前缀为表头模型名加平台 codeName，例如 `0819K-256K（drawbridge）：……`。“一次质检是否完成”由人工填写，脚本不得写入。非脏数据时不要给「脏数据标签」写入空字符串；脚本会清除单元格内容。已出现「数据无效」的空下拉格，重新 `--write` 即可按同样方式清掉。
 
 ## 复测启动与截图
 
@@ -297,6 +299,7 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-us
 | --- | --- | --- |
 | 提示词轮次作弊 | 不测产物 | `python3 skills/qc-eval/scripts/check_prompt_cheat.py <任务ID> --apply`。四个模型共用提示词截图，红框标出配额语句 |
 | Vue / Vite 前端，无强制后端栈 | 本机 dev server | `node skills/qc-eval/scripts/screenshot_vue.js <任务ID>`，再 `python3 skills/qc-eval/scripts/compose.py <任务ID>` |
+| Next.js / Node 前端，无强制后端栈，且用户明确要求尽量使用 u03l 或本机缺少 Chrome/FFmpeg/系统能力 | u03l 跑依赖、构建和验证；页面截图仍用本机截图脚本 | `python3 skills/qc-eval/scripts/verify_next_u03l.py <任务ID>` 生成 `tasks/<任务ID>/logs/<模型>-cli-u03l.log`，再按页面形态配置 `tasks/<任务ID>/screenshot_vue.json` 后执行 `node skills/qc-eval/scripts/screenshot_vue.js <任务ID>`、`python3 skills/qc-eval/scripts/compose_cli.py <任务ID> --no-web-from-attachments`、`python3 skills/qc-eval/scripts/compose.py <任务ID>` |
 | SPA MM030 FastAPI + Vite，SQLite 可本机闭环 | 本机 uvicorn + vite | `node skills/qc-eval/scripts/screenshot_spa_mm030.js <任务ID>`，再 `python3 skills/qc-eval/scripts/compose.py <任务ID>` |
 | CLI / 测试报告 | 本机 | `python3 skills/qc-eval/scripts/compose_cli.py <任务ID>`。若标注人附件中存在前端页面截图，脚本会自动先尝试运行可检测到的前端并补本人页面截图；不要只交终端图 |
 | FastAPI + Vite，且依赖 Postgres / Redis / Celery | **u03l Docker** 起 PG/Redis/Celery；本机起 uvicorn + vite，经 SSH 隧道连接 | 手写 `tasks/<TASK_ID>/verify_routes.json`，`sheet.verifiable` 填 `是`，再 `python3 skills/qc-eval/scripts/verify_fullstack.py <任务ID>` |
@@ -315,6 +318,7 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-us
 
 - 先 `python3 skills/qc-eval/scripts/u03l.py check-host`。不可达则停，开机后再跑；禁止降级成 mock 服务后仍把 `verifiable` 写成 `是`。
 - 标准全栈栈里，Docker 在 u03l 上只起 postgres / redis / celery；uvicorn 和 vite 仍在本机。
+- Node/Next 项目只有在用户明确要求“尽量用 u03l”或本机确实不适合复测时，才用 `verify_next_u03l.py` 把构建和验证放到 u03l；该脚本只补测试环境和拉回日志，不修改模型产物源码。若 u03l 缺 Chrome/FFmpeg，先按环境依赖闸门补齐后复跑。
 - 题目文案提到 postgres / redis / mysql / docker / celery 等服务栈，却要把 `verifiable` 标成 `否` 时，`verifiable_reason` 必须写明为何没法在 u03l / 工作机 Docker 上复测。`evidence_guard.py` 会拦截含糊理由。
 - 测完执行 `python3 skills/qc-eval/scripts/u03l.py down <任务ID>`，需要时再 `python3 skills/qc-eval/scripts/tunnel.py close <任务ID>`，不要留残余容器或 SSH 隧道。
 
@@ -386,7 +390,7 @@ CLI / 测试 / 终端证据截图只保留与复测结论直接相关的命令�
 ## 关键约束
 
 1. 质检相关动作只走本技能列出的集中脚本，不直接调底层 API 或 lark-cli。
-2. 本仓库当前默认飞书交付目标为 `sheet=GB6aQZ`。源表只读本地 `docs/42.xlsx`。
+2. 本仓库当前默认飞书交付目标为 `sheet=nH0hX0`。源表只读本地 `docs/43.xlsx`。
 3. 自动流程只生成本地文件；飞书回写只能在用户明确下达上传/回写指令后，通过显式 push 命令执行。用户只说“质检 <任务ID>”时，不得执行 `--write`。平台质检表单同样：只有用户明确要求填写网页表单后才运行 `fill_g1_audit_form.js`；该脚本只能保存草稿，不能提交。
 4. 截图必须是本人复测证据，不能复用标注人的截图；`delivery/<TASK_ID>/screenshots/` 只保留有效截图 PNG（如 `<模型>_01_cli.png`）和合成图 PNG（`<模型>_verify.png`），不要保留 `log.txt`、临时图、别名图或其他辅助文件。合成图必须按左右横向拼接原图，禁止上下纵向拼接；若只有一张有效截图，则直接复用该原图作为 `<模型>_verify.png`。提示词轮次作弊时四个模型都用同一张提示词红框图，文件名用 `<模型>_01_prompt_cheat.png`。
 5. `delivery/<TASK_ID>/<TASK_ID>.xlsx` 必须从空白 workbook 重建，只包含表头行和该任务行。
@@ -401,6 +405,7 @@ CLI / 测试 / 终端证据截图只保留与复测结论直接相关的命令�
 ```bash
 python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id <任务ID>
 node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome
+# 默认使用 Chrome 的 quan-134 个人资料（Profile 4）
 # 或：node skills/qc-eval/scripts/fetch_g1_platform.js auth-login
 node skills/qc-eval/scripts/fetch_g1_platform.js collect --task-id <任务ID>
 python3 skills/qc-eval/scripts/extract_g1_workspaces.py <任务ID>
@@ -412,10 +417,11 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 # 复测截图按「复测启动与截图」选题型，不要一律上 u03l：
 # node skills/qc-eval/scripts/screenshot_vue.js <任务ID>
 # python3 skills/qc-eval/scripts/compose.py <任务ID>
+# python3 skills/qc-eval/scripts/verify_next_u03l.py <任务ID>
 # python3 skills/qc-eval/scripts/compose_cli.py <任务ID>
 # python3 skills/qc-eval/scripts/u03l.py check-host
 # python3 skills/qc-eval/scripts/verify_fullstack.py <任务ID>
-python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 42期
+python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 43期
 python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
 python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
 # 用户明确要求填写平台质检表单后才可执行；只保存草稿，不提交：
