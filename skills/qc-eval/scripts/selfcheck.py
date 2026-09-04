@@ -962,6 +962,26 @@ def writing_template_issues() -> list[str]:
     )
     if not any("process-score-gap" in item for item in bad_process_issues):
         issues.append("process-score-scope-guard-missing")
+    reviewer_recheck_note = (
+        "补齐依赖后测试通过，标注人给执行过程 6 分偏低；"
+        "产物质量 5 分相符，反馈质量为合格。"
+    )
+    reviewer_recheck_audit = "补齐依赖后测试通过，过程 6 分偏低，反馈部分可用。"
+    reviewer_recheck_issues = scan_feedback_rating_rationale(
+        reviewer_recheck_note, reviewer_recheck_audit, "合格"
+    )
+    if not any("process-score-uses-unattributed-validation" in item for item in reviewer_recheck_issues):
+        issues.append("unattributed-validation-process-scope-guard-missing")
+    model_validation_note = (
+        "测试模型在轨迹中运行 go test 后继续排查失败，过程 6 分相符；"
+        "产物质量 5 分偏高，反馈质量为合格。"
+    )
+    model_validation_audit = "模型自测后的排查不足，产物 5 分偏高，反馈部分可用。"
+    model_validation_issues = scan_feedback_rating_rationale(
+        model_validation_note, model_validation_audit, "合格"
+    )
+    if any("process-score-uses-reviewer-recheck" in item for item in model_validation_issues):
+        issues.append("model-owned-validation-process-scope-false-positive")
     for item in annotator_tag_self_test():
         issues.append(f"annotator-tag-detector:{item}")
     _, specs = build_notes("工具轮次达到 450")

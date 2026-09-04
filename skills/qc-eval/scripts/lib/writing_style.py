@@ -323,7 +323,7 @@ _AUDIT_SHEET_PHRASES = (
     "反馈质量为不合格",
 )
 _TEMPLATE_NOTES = {
-    "高质量": "标注人给执行过程 8 分、产物质量 8 分，和产物实测情况一致，评分正确，反馈质量为高质量。",
+    "高质量": "标注人给执行过程 8 分、产物质量 8 分，测试模型的执行轨迹和最终产物分别与对应备注一致，评分正确，反馈质量为高质量。",
     "合格": "主页面能开和标注一致。过程 8 分相符，产物 9 分偏高，反馈质量为合格。",
     "不合格": "标注评语空泛且串图，属敷衍恶意打分，结论不可信。反馈质量为不合格。",
 }
@@ -347,10 +347,21 @@ _PROCESS_GAP_RE = re.compile(
     r"(?:偏高|偏低)[^。；;，,、]{0,24}(?:执行过程|过程)\s*\d+\s*分"
 )
 _PROCESS_EVIDENCE_RE = re.compile(
-    r"模型执行|执行过程(?:中|里|实际)|轨迹|工具(?:调用)?|调用|需求理解|规划|"
-    r"拆解|定位|排查|修改|修复|调试|自测|测试|检查|构建|迭代|"
-    r"重试|恢复|中断|卡住|报错|过早宣称|耗时|效率|完成任务|交付|"
-    r"命令|token|轮次|多轮|过程标签|过程备注|标注人备注"
+    r"测试模型|模型执行|执行过程(?:中|里|实际)|运行轨迹|模型轨迹|轨迹中|"
+    r"工具(?:调用)?|需求理解|规划|拆解|调试|自测|迭代|重试|恢复|"
+    r"中断|卡住|报错|过早宣称|耗时|效率|token|轮次|多轮|过程标签|过程备注"
+)
+_REVIEWER_RECHECK_RE = re.compile(
+    r"标注人(?:复测|验证|测试)|质检(?:员)?(?:复测|验证|测试)|本次(?:复测|验证|测试)|"
+    r"当前环境|复测环境|隔离(?:环境|复测|测试)|清理(?:测试)?环境"
+)
+_UNATTRIBUTED_VALIDATION_RE = re.compile(
+    r"清理.{0,12}配置|补齐(?:环境|依赖)|安装.{0,16}后|"
+    r"重新(?:测试|构建|验证)|复跑|(?:测试|构建|编译)通过"
+)
+_MODEL_OWNED_VALIDATION_RE = re.compile(
+    r"(?:测试模型|模型)(?:在轨迹中|执行过程中|运行时)?[^。；;\n]{0,32}"
+    r"(?:自测|测试|构建|编译|验证|go\s+test|npm\s+(?:run\s+)?test|pytest)"
 )
 _PRODUCT_ONLY_CONTEXT_RE = re.compile(
     r"页面|主页面|界面|按钮|控件|路由|功能|章节|小节|主链路|业务链路|"
@@ -369,6 +380,32 @@ def _process_score_rationale_issues(label: str, text: str) -> list[str]:
     """
     blob = str(text or "")
     issues: list[str] = []
+    # A reviewer rerun is artifact evidence unless the text explicitly ties the
+    # validation action to the tested model's recorded trajectory.
+    for verdict in _PROCESS_SCORE_VERDICT_RE.finditer(blob):
+        start, end = verdict.span()
+        left = max(
+            blob.rfind("。", 0, start),
+            blob.rfind("；", 0, start),
+            blob.rfind(";", 0, start),
+            blob.rfind("\n", 0, start),
+        )
+        right_candidates = [
+            pos
+            for pos in (
+                blob.find("。", end),
+                blob.find("；", end),
+                blob.find(";", end),
+                blob.find("\n", end),
+            )
+            if pos != -1
+        ]
+        right = min(right_candidates) if right_candidates else len(blob)
+        sentence = blob[left + 1:right]
+        if _REVIEWER_RECHECK_RE.search(sentence):
+            issues.append(f"{label}-process-score-uses-reviewer-recheck")
+        elif _UNATTRIBUTED_VALIDATION_RE.search(sentence) and not _MODEL_OWNED_VALIDATION_RE.search(sentence):
+            issues.append(f"{label}-process-score-uses-unattributed-validation")
     for match in _PROCESS_GAP_RE.finditer(blob):
         start, end = match.span()
         left = max(
