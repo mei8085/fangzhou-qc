@@ -196,11 +196,15 @@ MAX_CODE_REFS = 3
 
 # 题目质量说明是给表格 reviewer 看的判断依据，只说明题目本身的完整性、
 # 经济价值、评测价值、可复核性和未达高质量原因；不要把“是否是高质量题目”
-# 这个表字段的填写动作写进去。页面上看不到的聚合分由 writing_style.json
-# 的 page_hidden_* 统一拦截。
+# 这个表字段的填写动作写进去。涉及 Coding Agent workspace 规模时只写
+# 概括判断，不暴露具体代码量阈值或代码行数。页面上看不到的聚合分由
+# writing_style.json 的 page_hidden_* 统一拦截。
 TASK_NOTE_FORBIDDEN_PATTERNS = [
     (re.compile(r"是否是高质量题目.{0,20}填"), "task-note-no-high-quality-field-self-description"),
     (re.compile(r"填[“\"]?[是否][”\"]?"), "task-note-no-field-fill-instruction"),
+    (re.compile(r"(?:\b\d+(?:\.\d+)?\s*k\+?(?=\W|$)|\d{1,3}(?:,\d{3})+\s*\+?\s*行|\d{3,6}\s*\+?\s*行)", re.IGNORECASE), "task-note-no-specific-code-volume-threshold"),
+    (re.compile(r"(?:代码|仓库|workspace).{0,12}(?:约|大约|大概|不足|不到|少于|低于|只有|仅有)?\s*\d{2,6}\s*(?:行|lines?)", re.IGNORECASE), "task-note-no-specific-code-line-count"),
+    (re.compile(r"\d{2,6}\s*(?:行|lines?).{0,12}(?:代码|仓库|workspace)", re.IGNORECASE), "task-note-no-specific-code-line-count"),
 ]
 
 # 复测不能把质检机本地缺依赖当作模型产物缺陷。备注里如果出现典型本地

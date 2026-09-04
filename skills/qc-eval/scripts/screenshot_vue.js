@@ -133,17 +133,20 @@ function modelHasWebAttachment(taskDir, platformCode) {
 }
 
 function resolveEntryDir(taskDir, info) {
-  const base = path.join(taskDir, 'extracted', info.code);
   const explicit = info.entry || '.';
+  const bases = [info.platform, info.code].filter(Boolean)
+    .map((name) => path.join(taskDir, 'extracted', name));
   const cands = [];
-  cands.push(path.join(base, explicit));
-  cands.push(base);
-  cands.push(path.join(base, 'frontend'));
-  cands.push(path.join(base, 'frontend', 'web'));
-  // Some full-stack artifacts are symlinked to backend/ for Python tests; the
-  // frontend lives next to backend in the original repo.
-  cands.push(path.join(base, '..', 'frontend'));
-  cands.push(path.join(base, '..', 'frontend', 'web'));
+  for (const base of bases) {
+    cands.push(path.join(base, explicit));
+    cands.push(base);
+    cands.push(path.join(base, 'frontend'));
+    cands.push(path.join(base, 'frontend', 'web'));
+    // Some full-stack artifacts are symlinked to backend/ for Python tests; the
+    // frontend lives next to backend in the original repo.
+    cands.push(path.join(base, '..', 'frontend'));
+    cands.push(path.join(base, '..', 'frontend', 'web'));
+  }
   const seen = new Set();
   for (const c of cands) {
     const normalized = path.resolve(c);
@@ -151,7 +154,7 @@ function resolveEntryDir(taskDir, info) {
     seen.add(normalized);
     if (fs.existsSync(path.join(normalized, 'package.json'))) return normalized;
   }
-  return path.resolve(path.join(base, explicit));
+  return path.resolve(path.join(bases[0] || path.join(taskDir, 'extracted'), explicit));
 }
 
 async function waitForViteUrl(child, timeoutMs = 60000) {
@@ -210,10 +213,28 @@ function isNextProject(entryDir) {
   }
 }
 
+function isViteProject(entryDir) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(entryDir, 'package.json'), 'utf8'));
+    return Boolean((pkg.dependencies && pkg.dependencies.vite) || (pkg.devDependencies && pkg.devDependencies.vite));
+  } catch {
+    return false;
+  }
+}
+
+function readPackage(entryDir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(entryDir, 'package.json'), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
 function ensureProjectBin(entryDir) {
   // The tarball's node_modules ships dependency code but no .bin shims (Linux
   // symlinks were skipped during extraction on Windows). Run the package
   // manager once per entry dir to recreate the needed dev-server shim.
+  if (!isNextProject(entryDir) && !isViteProject(entryDir)) return;
   const binName = isNextProject(entryDir) ? 'next' : 'vite';
   const shim = process.platform === 'win32'
     ? path.join(entryDir, 'node_modules', '.bin', `${binName}.cmd`)
@@ -227,16 +248,64 @@ function ensureProjectBin(entryDir) {
   if (r.status !== 0) throw new Error(`${pm.install} failed in ${entryDir}`);
 }
 
+async function waitForHttpUrl(child, port, timeoutMs = 60000) {
+  const target = `http://localhost:${port}/`;
+  let buf = '';
+  const onData = (chunk) => { buf += chunk.toString(); };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const clean = stripAnsi(buf);
+    const m = clean.match(/https?:\/\/(?:localhost|127\.0\.0\.1):\d+\/?/);
+    if (m) {
+      child.stdout.off('data', onData);
+      child.stderr.off('data', onData);
+      return m[0].endsWith('/') ? m[0] : `${m[0]}/`;
+    }
+    const ready = clean.match(/READY\s+\{[^\n]*"port"\s*:\s*(\d+)/);
+    if (ready) {
+      child.stdout.off('data', onData);
+      child.stderr.off('data', onData);
+      return `http://127.0.0.1:${ready[1]}/`;
+    }
+    try {
+      const res = await fetch(target, { method: 'GET' });
+      if (res.status < 500) {
+        child.stdout.off('data', onData);
+        child.stderr.off('data', onData);
+        return target;
+      }
+    } catch {}
+    if (child.exitCode !== null) {
+      child.stdout.off('data', onData);
+      child.stderr.off('data', onData);
+      throw new Error(`server exited with code ${child.exitCode}. last output:\n${buf.slice(-1000)}`);
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+  child.stdout.off('data', onData);
+  child.stderr.off('data', onData);
+  throw new Error(`server did not become reachable within ${timeoutMs}ms. last output:\n${buf.slice(-1000)}`);
+}
+
 async function startDevServer(entryDir, port) {
   ensureProjectBin(entryDir);
   // Need shell:true on Windows because npm is a .cmd shim — Node 20+ requires
   // shell:true to spawn it. The shell also handles `--` argument passthrough.
   const pm = packageRunner(entryDir);
+  const pkg = readPackage(entryDir);
+  const scripts = pkg.scripts || {};
   // Next project scripts in these tasks often hard-code --port 3210, so call
   // next directly to guarantee each model gets its own screenshot port.
-  const cmd = isNextProject(entryDir)
-    ? `npx next dev --port ${port}`
-    : `${pm.run} -- --port ${port} --strictPort`;
+  let cmd;
+  if (isNextProject(entryDir)) {
+    cmd = `npx next dev --port ${port}`;
+  } else if (isViteProject(entryDir) && scripts.dev) {
+    cmd = `${pm.run} -- --port ${port} --strictPort`;
+  } else {
+    cmd = scripts.start ? `${pm.bin} start` : `${pm.bin} run dev`;
+  }
   console.log(`     starting "${cmd}" in ${entryDir}`);
   const child = spawn(cmd, {
     cwd: entryDir,
@@ -244,11 +313,14 @@ async function startDevServer(entryDir, port) {
     windowsHide: true,
     detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PORT: String(port) },
   });
   child.on('error', e => console.error('     spawn error:', e.message));
   let url;
   try {
-    url = await waitForViteUrl(child);
+    url = isViteProject(entryDir)
+      ? await waitForViteUrl(child)
+      : await waitForHttpUrl(child, port);
   } catch (e) {
     killTree(child.pid);
     throw e;
@@ -477,6 +549,19 @@ async function screenshotConfiguredModel(browser, label, code, entryDir, outDir,
           () => document.body && document.body.innerText && document.body.innerText.length > 30,
           null, { timeout: 20000 }
         );
+      }
+      if (step.set_input_files) {
+        const upload = typeof step.set_input_files === 'string'
+          ? { path: step.set_input_files }
+          : step.set_input_files;
+        const uploadPath = path.resolve(entryDir, upload.path || '');
+        const entryRoot = `${path.resolve(entryDir)}${path.sep}`;
+        if (!uploadPath.startsWith(entryRoot) || !fs.existsSync(uploadPath)) {
+          throw new Error(`invalid upload path: ${upload.path || ''}`);
+        }
+        const input = page.locator(upload.selector || 'input[type="file"]').first();
+        await input.setInputFiles(uploadPath);
+        await page.waitForTimeout(step.action_delay_ms || 700);
       }
       const selectors = [];
       if (step.click) selectors.push(step.click);

@@ -1,6 +1,6 @@
-# 43 期平台质检表单模版
+# G3-new平台质检表单模版
 
-适用项目：[Ark project 315](https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/315/task/6936)。逐模型审核页由采集到的 `taskModelRunId` 动态生成。
+适用项目：[Ark project 299](https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/299/task/6397)。逐模型审核页由采集到的 `taskModelRunId` 动态生成。
 
 机器可读副本：`skills/qc-eval/config/g1_audit_form.json`。
 
@@ -9,7 +9,7 @@
 - `delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md`
 - `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`
 
-每个模型打开：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/315/review/<taskModelRunId>?mode=audit`，右侧切到「质检」。
+每个模型打开：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/299/review/<taskModelRunId>?mode=audit`，右侧切到「质检」。
 
 ---
 

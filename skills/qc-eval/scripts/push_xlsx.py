@@ -14,9 +14,9 @@ from tasks/<TASK_ID>/qc_cells.json after the rebuild.
 
 Usage:
     push_xlsx.py <TASK_ID> [<TASK_ID> ...]
-        [--source <repo>/docs/43.xlsx]
-        [--sheet Sheet1]
-        [--period 43期]
+        [--source <repo>/docs/G3-new.xlsx]
+        [--sheet "G3-new coding质检"]
+        [--period G3-new]
 """
 
 from __future__ import annotations
@@ -36,11 +36,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from lib.paths import REPO_ROOT, default_g1_source_xlsx, default_38_source_xlsx  # noqa: E402
 from lib.writing_style import compose_feedback_note  # noqa: E402
-from lib.g1 import to_feishu_dirty_tag  # noqa: E402
+from lib.g1 import PERIOD, SOURCE_SHEET, to_feishu_dirty_tag  # noqa: E402
 from lib.label_options import LABEL_HEADER, resolve_task_label  # noqa: E402
 
 DEFAULT_SOURCE = default_g1_source_xlsx()
-DEFAULT_SHEET = "Sheet1"
+DEFAULT_SHEET = SOURCE_SHEET
 SOURCE_38 = default_38_source_xlsx()
 SHEET_38 = "38期coding质检"
 SOURCE_G1 = DEFAULT_SOURCE
@@ -48,6 +48,8 @@ SHEET_G1 = DEFAULT_SHEET
 MACHINE_QC_HEADER = "机器质检结果是否正确"
 MACHINE_QC_OPTIONS = ("正确", "部分正确可参考", "错误")
 PERIOD_PRESETS = {
+    PERIOD: (SOURCE_G1, SHEET_G1),
+    "G3-new": (SOURCE_G1, SHEET_G1),
     "43期": (SOURCE_G1, SHEET_G1),
     "42期": (SOURCE_G1, SHEET_G1),
     "38期": (SOURCE_38, SHEET_38),

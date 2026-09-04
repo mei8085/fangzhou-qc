@@ -280,9 +280,6 @@ def combined_prompt(task_json: Path, payload: Any) -> tuple[str, list[dict[str, 
     for item in materials:
         source = str(item.get("source") or item.get("source_file") or "uploaded text")
         text = str(item.get("text") or "").strip()
-        if not text:
-            continue
-        sections.append(f"# 首轮上传产物文本：{source}\n\n{text}")
         sources.append({
             "kind": "task_upload_text",
             "source": source,
@@ -290,6 +287,9 @@ def combined_prompt(task_json: Path, payload: Any) -> tuple[str, list[dict[str, 
             "size_bytes": item.get("size_bytes"),
             "sha256": item.get("sha256"),
         })
+        if not text:
+            continue
+        sections.append(f"# 首轮上传产物文本：{source}\n\n{text}")
     return "\n\n---\n\n".join(sections), sources
 
 

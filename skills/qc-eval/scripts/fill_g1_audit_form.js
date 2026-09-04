@@ -10,10 +10,10 @@
  *   - This script cannot submit. Humans review the draft and submit later.
  *
  * Usage:
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6936
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6936 --only drawbridge
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6936 --dry-run
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6936 --headed
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397 --only tundra
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397 --dry-run
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397 --headed
  */
 
 const { chromium } = require('playwright');
@@ -364,26 +364,54 @@ async function fillAuditReason(root, value) {
 }
 
 function dirtySection(root) {
-  return root.locator('div.rounded-lg', {
-    has: root.getByText(LABEL.dirtyTags, { exact: true }),
-  }).first();
+  // The current Ark page renders dirty tags as aria-pressed buttons under
+  // the QC panel, while the surrounding card classes are not stable.
+  return root;
+}
+
+function normalizeDirtyTagName(value) {
+  return String(value || '')
+    .replace(/\s+/g, '')
+    .replace(/:/g, '：')
+    .trim();
 }
 
 async function setDirtyTags(root, wanted) {
   const section = dirtySection(root);
   const buttons = section.locator('button[aria-pressed]');
   const count = await buttons.count();
-  const wantedSet = new Set(wanted);
+  const wantedSet = new Set(wanted.map(normalizeDirtyTagName));
+  if (wantedSet.size === 0) {
+    const clear = section.getByText('清空选择', { exact: true });
+    if (await clear.count()) {
+      await clear.first().click();
+      await pageWaitForSelectedDirtyClear(section).catch(() => {});
+    }
+  }
   for (let i = 0; i < count; i++) {
     const btn = buttons.nth(i);
     const name = (await btn.innerText()).replace(/\s+/g, ' ').trim();
+    const normalizedName = normalizeDirtyTagName(name);
     const pressed = (await btn.getAttribute('aria-pressed')) === 'true';
-    const should = wantedSet.has(name);
+    const should = wantedSet.has(normalizedName);
     if (pressed !== should) {
       await btn.scrollIntoViewIfNeeded();
       await btn.click();
     }
   }
+  const selected = await buttons.evaluateAll((els) => els
+    .filter((el) => el.getAttribute('aria-pressed') === 'true')
+    .map((el) => (el.innerText || '').replace(/\s+/g, ' ').trim()));
+  const selectedSet = new Set(selected.map(normalizeDirtyTagName));
+  for (const tag of wantedSet) {
+    if (!selectedSet.has(tag)) {
+      throw new Error(`${LABEL.dirtyTags} option not selected: ${tag}`);
+    }
+  }
+}
+
+async function pageWaitForSelectedDirtyClear(section) {
+  await section.locator('button[aria-pressed="true"]').waitFor({ state: 'detached', timeout: 3000 });
 }
 
 async function readFilled(root) {

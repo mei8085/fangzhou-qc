@@ -56,7 +56,12 @@ QUOTA_VERB = (
     r"minimum|min(?:imum)?)"
 )
 
-NUMBER = r"(?:\d{2,}|[一二三四五六七八九十百千两]+)"
+NUMBER = (
+    r"(?:\d{2,}|"
+    r"(?:十[一二三四五六七八九]?|[一二三四五六七八九两]十[一二三四五六七八九]?|"
+    r"[一二三四五六七八九两]百[一二三四五六七八九十百千两]*|"
+    r"[一二三四五六七八九两]千[一二三四五六七八九十百千两]*))"
+)
 
 NEG_PAD = re.compile(
     r"(?:不要|别|禁止|切勿|不得|无需|不要求|不要为了|避免).{0,20}"
@@ -348,6 +353,7 @@ def self_test() -> list[str]:
     expect("min-field", "min_tool_calls: 200", True)
     expect("clean-task", "基于订单明细分析退款率，并输出可执行建议。", False)
     expect("complexity-no-quota", "需要多步骤规划、工具协作和验证。", False)
+    expect("one-tool-call", "`sessionToolCalls` 中有至少一个工具调用（Agent 确实在工作）", False)
     expect("forbid-pad", "不要为了凑轮次而重复调用无意义工具。", False)
     expect("split-lines", "工具轮次必须\n达到 450。", True)
 

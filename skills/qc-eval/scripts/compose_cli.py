@@ -584,7 +584,7 @@ def main() -> int:
     out_dir = REPO_ROOT / "delivery" / args.task_id / "screenshots"
     for col, info in mm["models"].items():
         code = info["code"]
-        model_dir = task_dir / "extracted" / code
+        model_dir = task_dir / "extracted" / code / (info.get("entry") or ".")
         print(f"==> {col} ({code})")
         outs = compose_one(args.task_id, code, col, model_dir, out_dir, args.report_file)
         for k, v in outs.items():

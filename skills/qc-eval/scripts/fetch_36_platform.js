@@ -87,7 +87,7 @@ function usage(code = 2) {
   console.error(`usage:
   node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json] [--profile <profile-dir>] [--chrome-user-data-dir <dir>]
   node skills/qc-eval/scripts/fetch_38_platform.js auth-login [--state skills/qc-eval/.ark_platform_state.json] [--url <login-url>]
-  node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id 4267
+  node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id 6397
   node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 (--task-id 475 | --task-title <title>) --sheet-task-id <任务ID> [--state <state.json>] [--tasks-dir tasks] [--skip-workspace] [--skip-trajectory] [--keep-existing] [--runs 1702,1701]
   node skills/qc-eval/scripts/fetch_38_platform.js find-project (--task-id 475 | --task-title <title>) [--projects 230-270|256] [--state <state.json>]
 
@@ -1367,7 +1367,7 @@ async function discoverAuditForm(opts) {
   }
   const outDir = path.resolve(
     opts['tasks-dir'] || path.join(REPO_ROOT, 'tasks'),
-    opts['sheet-task-id'] ? String(opts['sheet-task-id']) : '4267',
+    opts['sheet-task-id'] ? String(opts['sheet-task-id']) : '6397',
     opts['output-subdir'] || 'ark_g1',
   );
   ensureDir(outDir);

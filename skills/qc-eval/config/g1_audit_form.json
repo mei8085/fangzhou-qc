@@ -1,10 +1,10 @@
 {
-  "period": "43期",
-  "project_id": 315,
+  "period": "G3-new",
+  "project_id": 299,
   "source": {
-    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/315/task/6936",
-    "task_id": 6936,
-    "task_title": "批量制作工作台与交付进度中心",
+    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/299/task/6397",
+    "task_id": 6397,
+    "task_title": "芯片开发平台远程学习培训系统改进",
     "note": "质检表单字段沿用当前 Ark 通用结构；逐模型 review URL 由采集结果动态生成。"
   },
   "page": {
