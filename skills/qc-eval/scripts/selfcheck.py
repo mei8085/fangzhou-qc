@@ -38,6 +38,8 @@ from check_prompt_cheat import build_notes  # noqa: E402
 from lib.g1 import (  # noqa: E402
     FEISHU_DIRTY_TAG_OPTIONS,
     PERIOD,
+    PLATFORM_CODES,
+    SHEET_MODELS,
     is_empty_feishu_dirty_tag,
     is_feishu_dirty_tag_header,
     sheet_model_label,
@@ -179,6 +181,17 @@ UNNATURAL_STYLE_RE = re.compile(
     r"(?:判断|识别)?落点"
 )
 SCORE_IN_NOTE = re.compile(r"\d+\s*分")
+MODEL_IDENTIFIER_TERMS = sorted(
+    {str(v).strip() for v in [*SHEET_MODELS, *PLATFORM_CODES] if str(v).strip()},
+    key=len,
+    reverse=True,
+)
+MODEL_IDENTIFIER_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])(?:"
+    + "|".join(re.escape(v) for v in MODEL_IDENTIFIER_TERMS)
+    + r")(?![A-Za-z0-9_-])",
+    re.IGNORECASE,
+) if MODEL_IDENTIFIER_TERMS else None
 
 FORBIDDEN_SYM = re.compile(r"[*#]|`")
 
@@ -304,6 +317,8 @@ def scan_cell(
             issues.append("not-evaluating-annotator")
         if period in _CURRENT_PERIODS and not SCORE_IN_NOTE.search(s):
             issues.append("model-note-missing-score")
+        if period in _CURRENT_PERIODS and MODEL_IDENTIFIER_RE and MODEL_IDENTIFIER_RE.search(s):
+            issues.append("model-note-no-model-identifier")
         issues.extend(dangling_opening_issues(s))
     return issues
 
