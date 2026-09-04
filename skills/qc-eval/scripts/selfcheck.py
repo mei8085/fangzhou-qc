@@ -197,7 +197,9 @@ MAX_CODE_REFS = 3
 # 题目质量说明是给表格 reviewer 看的判断依据，只说明题目本身的完整性、
 # 经济价值、评测价值、可复核性和未达高质量原因；不要把“是否是高质量题目”
 # 这个表字段的填写动作写进去。涉及 Coding Agent workspace 规模时只写
-# 概括判断，不暴露具体代码量阈值或代码行数。页面上看不到的聚合分由
+# 概括判断，不暴露具体代码量阈值或代码行数。区分度从题目设计简洁说明即可，
+# 不要求展开决策空间等细节，也不能引用测试模型实际分数、维度分或分差。
+# 页面上看不到的聚合分由
 # writing_style.json 的 page_hidden_* 统一拦截。
 TASK_NOTE_FORBIDDEN_PATTERNS = [
     (re.compile(r"是否是高质量题目.{0,20}填"), "task-note-no-high-quality-field-self-description"),
@@ -205,6 +207,9 @@ TASK_NOTE_FORBIDDEN_PATTERNS = [
     (re.compile(r"(?:\b\d+(?:\.\d+)?\s*k\+?(?=\W|$)|\d{1,3}(?:,\d{3})+\s*\+?\s*行|\d{3,6}\s*\+?\s*行)", re.IGNORECASE), "task-note-no-specific-code-volume-threshold"),
     (re.compile(r"(?:代码|仓库|workspace).{0,12}(?:约|大约|大概|不足|不到|少于|低于|只有|仅有)?\s*\d{2,6}\s*(?:行|lines?)", re.IGNORECASE), "task-note-no-specific-code-line-count"),
     (re.compile(r"\d{2,6}\s*(?:行|lines?).{0,12}(?:代码|仓库|workspace)", re.IGNORECASE), "task-note-no-specific-code-line-count"),
+    (re.compile(r"(?:执行过程|过程|产物质量|产物)\s*分(?!析)"), "task-note-no-test-model-dimension-scores"),
+    (re.compile(r"模型.{0,24}(?:实际得分|评分结果|分差|相差\s*\d+\s*分)"), "task-note-no-test-model-score-difference"),
+    (re.compile(r"(?:S\d{3}|tundra|sextant|ripple).{0,12}\d+\s*分", re.IGNORECASE), "task-note-no-test-model-scores"),
 ]
 
 # 复测不能把质检机本地缺依赖当作模型产物缺陷。备注里如果出现典型本地
@@ -952,6 +957,12 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
 def writing_template_issues() -> list[str]:
     """Canned examples in writing_style.json and cheat notes must pass rationale rules."""
     issues = opening_family_example_issues()
+    bad_task_note = "三个模型的执行过程分和产物质量分均仅相差 1 分，未达到区分度要求。"
+    if not scan_task_quality_note(bad_task_note):
+        issues.append("task-note-model-score-guard-missing")
+    good_task_note = "但题目设计与校验标准未达到高质量题目的区分度参考要求，因此题目质量为合格。"
+    if scan_task_quality_note(good_task_note):
+        issues.append("task-note-design-rationale-false-positive")
     bad_process_note = (
         "复测显示页面流程、章节加载和响应式验证均通过，"
         "标注人给执行过程 7 分偏低，反馈质量为合格。"
