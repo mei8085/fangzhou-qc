@@ -37,6 +37,7 @@ from lib.writing_style import (  # noqa: E402
 from check_prompt_cheat import build_notes  # noqa: E402
 from lib.g1 import (  # noqa: E402
     FEISHU_DIRTY_TAG_OPTIONS,
+    MISSING_MODEL_RATING,
     PERIOD,
     PLATFORM_CODES,
     SHEET_MODELS,
@@ -181,6 +182,7 @@ UNNATURAL_STYLE_RE = re.compile(
     r"(?:判断|识别)?落点"
 )
 SCORE_IN_NOTE = re.compile(r"\d+\s*分")
+MISSING_MODEL_NOTE_RE = re.compile(r"未作答|未测试|未提交|未完成.{0,8}(?:模型|测试)|没有运行记录")
 MODEL_IDENTIFIER_TERMS = sorted(
     {str(v).strip() for v in [*SHEET_MODELS, *PLATFORM_CODES] if str(v).strip()},
     key=len,
@@ -222,7 +224,13 @@ TASK_NOTE_FORBIDDEN_PATTERNS = [
     (re.compile(r"\d{2,6}\s*(?:行|lines?).{0,12}(?:代码|仓库|workspace)", re.IGNORECASE), "task-note-no-specific-code-line-count"),
     (re.compile(r"(?:执行过程|过程|产物质量|产物)\s*分(?!析)"), "task-note-no-test-model-dimension-scores"),
     (re.compile(r"模型.{0,24}(?:实际得分|评分结果|分差|相差\s*\d+\s*分)"), "task-note-no-test-model-score-difference"),
-    (re.compile(r"(?:S\d{3}|tundra|sextant|ripple).{0,12}\d+\s*分", re.IGNORECASE), "task-note-no-test-model-scores"),
+    (
+        re.compile(
+            r"(?:" + "|".join(re.escape(v) for v in MODEL_IDENTIFIER_TERMS) + r").{0,12}\d+\s*分",
+            re.IGNORECASE,
+        ),
+        "task-note-no-test-model-scores",
+    ),
 ]
 
 # 复测不能把质检机本地缺依赖当作模型产物缺陷。备注里如果出现典型本地
@@ -315,7 +323,7 @@ def scan_cell(
                 issues.append("not-evaluating-annotator")
         elif not ANNOTATOR_REF.search(s):
             issues.append("not-evaluating-annotator")
-        if period in _CURRENT_PERIODS and not SCORE_IN_NOTE.search(s):
+        if period in _CURRENT_PERIODS and not SCORE_IN_NOTE.search(s) and not MISSING_MODEL_NOTE_RE.search(s):
             issues.append("model-note-missing-score")
         if period in _CURRENT_PERIODS and MODEL_IDENTIFIER_RE and MODEL_IDENTIFIER_RE.search(s):
             issues.append("model-note-no-model-identifier")
@@ -457,6 +465,38 @@ def model_rating_note_cols(headers: dict[str, int]) -> list[tuple[str, int, int 
     return out
 
 
+def missing_model_qc_issues(ws, headers: dict[str, int], task_id: str) -> dict[int, list[str]]:
+    """Require absent Ark models to be explicitly marked unqualified."""
+    if not task_id:
+        return {}
+    map_path = REPO_ROOT / "tasks" / task_id / "model_map.json"
+    if not map_path.exists():
+        return {}
+    try:
+        model_map = json.loads(map_path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return {}
+    columns = {model: (rating_col, note_col) for model, rating_col, note_col in model_rating_note_cols(headers)}
+    bad: dict[int, list[str]] = {}
+    for model, info in (model_map.get("models") or {}).items():
+        if not info.get("missing"):
+            continue
+        rating_col, note_col = columns.get(model, (None, None))
+        if not rating_col:
+            continue
+        rating = cell_text(ws, rating_col)
+        note = cell_text(ws, note_col)
+        dirty_col = headers.get(f"{model}脏数据标签")
+        dirty = cell_text(ws, dirty_col)
+        if rating != MISSING_MODEL_RATING:
+            bad.setdefault(rating_col, []).append(f"missing-model-rating-must-be-{MISSING_MODEL_RATING}")
+        if not MISSING_MODEL_NOTE_RE.search(note):
+            bad.setdefault(note_col or rating_col, []).append("missing-model-note-must-state-not-submitted")
+        if dirty != "用户问题:敷衍恶意打分":
+            bad.setdefault(dirty_col or rating_col, []).append("missing-model-dirty-tag-must-be-用户问题:敷衍恶意打分")
+    return bad
+
+
 def evidence_too_thin(texts: list[str]) -> bool:
     concrete = [t for t in texts if t.strip()]
     if not concrete:
@@ -468,7 +508,16 @@ def redline_header_col(headers: dict[str, int]) -> int | None:
     return headers.get(_G1_REDLINE_HEADER) or headers.get(_REDLINE_HEADER)
 
 
-def redline_consistency_issues(ws, headers: dict[str, int]) -> list[str]:
+def is_artifact_download_unavailable_case(qc: dict | None) -> bool:
+    sheet = ((qc or {}).get("sheet") or {})
+    return sheet.get("artifact_download_unavailable") is True
+
+
+def redline_consistency_issues(
+    ws,
+    headers: dict[str, int],
+    qc: dict | None = None,
+) -> list[str]:
     """Check 红线问题 options, category match, and minimum evidence discipline."""
     redline_col = redline_header_col(headers)
     if not redline_col:
@@ -487,7 +536,11 @@ def redline_consistency_issues(ws, headers: dict[str, int]) -> list[str]:
         for _model, rating_col, note_col in model_rating_note_cols(headers)
         if can_carry_feedback_redline(ws, rating_col)
     ]
-    has_model_redline = bool(redline_model_notes)
+    # Historical task 6699 establishes a non-redline exception: when every
+    # model artifact download is disabled, feedback is unqualified because it
+    # cannot be verified, while the dirty-data tag is "其他" and redline stays
+    # empty. A dedicated guard below validates that exception in full.
+    has_model_redline = bool(redline_model_notes) and not is_artifact_download_unavailable_case(qc)
     has_redline_rating = task_rating_redline or has_model_redline
 
     issues: list[str] = []
@@ -537,6 +590,71 @@ def redline_consistency_issues(ws, headers: dict[str, int]) -> list[str]:
         elif VAGUE_REDLINE_EVIDENCE.search(task_note):
             issues.append("task-quality-trigger-redline-evidence-vague")
     return issues
+
+
+def artifact_download_unavailable_issues(
+    ws,
+    headers: dict[str, int],
+    qc: dict | None,
+    task_id: str,
+) -> dict[int, list[str]]:
+    """Validate the explicit all-download-buttons-disabled exception."""
+    if not is_artifact_download_unavailable_case(qc):
+        return {}
+    bad: dict[int, list[str]] = {}
+
+    def add(col: int | None, issue: str) -> None:
+        if col:
+            bad.setdefault(col, []).append(issue)
+
+    verifiable_col = headers.get("题目是否可验证") or headers.get("题目是否可验")
+    reason_col = headers.get("不可验证原因")
+    redline_col = redline_header_col(headers)
+    if cell_text(ws, verifiable_col) != "否":
+        add(verifiable_col, "download-unavailable-verifiable-must-be-否")
+    reason = cell_text(ws, reason_col)
+    if "产物不可下载" not in reason or "无法验证" not in reason:
+        add(reason_col, "download-unavailable-reason-must-name-artifact-and-verification")
+    if cell_text(ws, redline_col):
+        add(redline_col, "download-unavailable-redline-must-be-empty")
+
+    qc_models = (((qc or {}).get("sheet") or {}).get("models") or {})
+    for model, rating_col, note_col in model_rating_note_cols(headers):
+        dirty_col = headers.get(f"{model}脏数据标签")
+        dirty_reason_col = headers.get(f"{model}脏数据标签理由")
+        if cell_text(ws, rating_col) != "不合格":
+            add(rating_col, "download-unavailable-rating-must-be-不合格")
+        note = cell_text(ws, note_col)
+        if "产物不可下载" not in note or "无法验证" not in note:
+            add(note_col or rating_col, "download-unavailable-note-must-name-artifact-and-verification")
+        if cell_text(ws, dirty_col) != "其他":
+            add(dirty_col or rating_col, "download-unavailable-dirty-tag-must-be-其他")
+        dirty_reason = cell_text(ws, dirty_reason_col)
+        if "产物不可下载" not in dirty_reason or "无法验证" not in dirty_reason:
+            add(dirty_reason_col or rating_col, "download-unavailable-dirty-reason-invalid")
+        audit = str((qc_models.get(model) or {}).get("platform_audit_reason") or "")
+        if "产物不可下载" not in audit or "无法验证" not in audit or "完全不可用" not in audit:
+            add(rating_col, "download-unavailable-platform-audit-reason-invalid")
+
+        screenshots = REPO_ROOT / "delivery" / task_id / "screenshots"
+        if not (screenshots / f"{model}_01_download_blocker.png").exists():
+            add(note_col or rating_col, "download-unavailable-evidence-screenshot-missing")
+        if not (screenshots / f"{model}_verify.png").exists():
+            add(note_col or rating_col, "download-unavailable-verify-screenshot-missing")
+
+    discovery_path = REPO_ROOT / "tasks" / task_id / "ark_g1" / "download_list_discover.json"
+    try:
+        discovery = json.loads(discovery_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        add(reason_col, "download-unavailable-discovery-missing-or-invalid")
+    else:
+        if discovery.get("classification") != "artifact_download_unavailable":
+            add(reason_col, "download-unavailable-discovery-classification-invalid")
+        if discovery.get("all_expected_models_present") is not True:
+            add(reason_col, "download-unavailable-discovery-models-incomplete")
+        if discovery.get("all_download_buttons_disabled") is not True:
+            add(reason_col, "download-unavailable-discovery-buttons-not-all-disabled")
+    return bad
 
 
 def machine_qc_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]:
@@ -937,7 +1055,7 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
             ):
                 bad.setdefault(task_note_col, []).append(issue)
     redline_col = redline_header_col(headers)
-    redline_issues = redline_consistency_issues(ws, headers)
+    redline_issues = redline_consistency_issues(ws, headers, qc)
     if redline_col and redline_issues:
         bad.setdefault(redline_col, []).extend(redline_issues)
     for col, issues in high_quality_task_issues(ws, headers).items():
@@ -952,9 +1070,15 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
         bad.setdefault(col, []).extend(issues)
     for col, issues in machine_qc_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
+    for col, issues in artifact_download_unavailable_issues(
+        ws, headers, qc, task_id
+    ).items():
+        bad.setdefault(col, []).extend(issues)
     for col, issues in feedback_rating_rationale_issues(
         ws, headers, qc, prompt_cheat=prompt_cheat
     ).items():
+        bad.setdefault(col, []).extend(issues)
+    for col, issues in missing_model_qc_issues(ws, headers, task_id).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in local_env_dependency_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
@@ -972,7 +1096,7 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
 def writing_template_issues() -> list[str]:
     """Canned examples in writing_style.json and cheat notes must pass rationale rules."""
     issues = opening_family_example_issues()
-    bad_task_note = "三个模型的执行过程分和产物质量分均仅相差 1 分，未达到区分度要求。"
+    bad_task_note = "多个模型的执行过程分和产物质量分均仅相差 1 分，未达到区分度要求。"
     if not scan_task_quality_note(bad_task_note):
         issues.append("task-note-model-score-guard-missing")
     good_task_note = "但题目设计与校验标准未达到高质量题目的区分度参考要求，因此题目质量为合格。"

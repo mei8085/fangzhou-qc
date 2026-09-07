@@ -92,6 +92,9 @@ def main() -> int:
 
     out_dir = REPO_ROOT / "delivery" / args.task_id / "screenshots"
     for col, info in mm["models"].items():
+        if info.get("missing"):
+            print(f"==> {col} ({info.get('code') or col}): not submitted; keep missing-model evidence")
+            continue
         tag = col.replace(" ", "_")
         code = info["code"]
         cands = sorted(out_dir.glob(f"{tag}_*.png"))

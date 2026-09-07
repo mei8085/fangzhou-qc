@@ -53,6 +53,7 @@ RUNTIME_TOKENS = {
     "filter",
     "initial",
     "login",
+    "missing_model",
     "npm",
     "page",
     "pytest",
@@ -75,6 +76,7 @@ STATIC_REVIEW_TOKENS = CODE_ONLY_TOKENS | {
     "blocker",
     "prompt",
     "cheat",
+    "missing_model",
 }
 
 ENV_BLOCKER_TERMS = (
@@ -142,7 +144,7 @@ def filename_tokens(path: Path) -> set[str]:
     parts = re.split(r"[^0-9a-z]+", stem)
     tokens = {p for p in parts if p}
     # Keep multi-word phrases that are meaningful for this guard.
-    for phrase in ("code_editor", "table_config", "frontend_highlight", "prompt_cheat"):
+    for phrase in ("code_editor", "table_config", "frontend_highlight", "prompt_cheat", "missing_model"):
         if phrase in stem:
             tokens.add(phrase)
     return tokens
@@ -262,6 +264,13 @@ def check_task(task_id: str) -> list[str]:
             tag = model_screenshot_tag(model_name)
             frames = sorted(delivery_dir.glob(f"{tag}_??_*.png"))
             verify = delivery_dir / f"{tag}_verify.png"
+            model_info = (model_map.get("models") or {}).get(model_name) or {}
+            if model_info.get("missing"):
+                if not frames or not any("missing_model" in filename_tokens(p) for p in frames):
+                    errors.append(f"{task_id}/{model_name}: missing not-submitted model evidence")
+                if not verify.exists():
+                    errors.append(f"{task_id}/{model_name}: missing {tag}_verify.png")
+                continue
             if not frames:
                 errors.append(f"{task_id}/{model_name}: verifiable=否 but no static-review screenshots")
                 continue
@@ -285,6 +294,13 @@ def check_task(task_id: str) -> list[str]:
         tag = model_screenshot_tag(model_name)
         frames = sorted(delivery_dir.glob(f"{tag}_??_*.png"))
         verify = delivery_dir / f"{tag}_verify.png"
+        model_info = (model_map.get("models") or {}).get(model_name) or {}
+        if model_info.get("missing"):
+            if not frames or not any("missing_model" in filename_tokens(p) for p in frames):
+                errors.append(f"{task_id}/{model_name}: missing not-submitted model evidence")
+            if not verify.exists():
+                errors.append(f"{task_id}/{model_name}: missing {tag}_verify.png")
+            continue
         if not frames:
             errors.append(f"{task_id}/{model_name}: verifiable=是 but no per-step screenshots")
             continue

@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const { chromium } = require("playwright");
+const { preferredPortBase } = require("./lib/concurrency");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 
@@ -170,12 +171,13 @@ async function main() {
     process.exit(2);
   }
   const mapPath = path.join(REPO_ROOT, "tasks", taskId, "model_map.json");
+  const basePort = preferredPortBase(taskId, 'screenshot-tunnel-modal', 8);
   const modelMap = JSON.parse(fs.readFileSync(mapPath, "utf8"));
   let i = 0;
   for (const col of modelMap.sheet_columns || Object.keys(modelMap.models)) {
     const m = modelMap.models[col];
     console.log(`==> ${taskId} ${col} (${m.code})`);
-    await captureModel(taskId, col, m.code, 5290 + i);
+    await captureModel(taskId, col, m.code, basePort + i);
     i += 1;
   }
 }

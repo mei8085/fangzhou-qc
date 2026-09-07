@@ -28,6 +28,7 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
+const { atomicWriteJSON } = require('./lib/concurrency');
 
 const HOST = 'https://console.volcengine.com';
 const ARK_REFERER = 'https://ark.volcengine.com/';
@@ -121,8 +122,7 @@ function ensureDir(dir) {
 }
 
 function writeJSON(file, value) {
-  ensureDir(path.dirname(file));
-  fs.writeFileSync(file, JSON.stringify(value, null, 2));
+  atomicWriteJSON(file, value);
 }
 
 function readJSON(file) {
@@ -582,12 +582,49 @@ async function discoverDownloadList(opts) {
   const count = await locators.count();
   console.log(`==> locator 下载列表 count=${count}`);
   const clickResults = [];
+  let downloadRows = [];
+  let evidenceScreenshot = '';
   for (let i = 0; i < Math.min(count, 5); i++) {
     const before = calls.length;
     try {
       await locators.nth(i).click({ timeout: 5000 });
       await sleep(2500);
-      await page.screenshot({ path: path.join(outDir, `_discover_download_${i}.png`) });
+      const screenshotPath = path.join(outDir, `_discover_download_${i}.png`);
+      await page.screenshot({ path: screenshotPath });
+      const rows = await page.evaluate(() => {
+        const tables = Array.from(document.querySelectorAll('table'));
+        const table = tables.find((node) => /模型运行\s*ID/.test(node.innerText || '')
+          && /下载进度/.test(node.innerText || ''));
+        if (!table) return [];
+        return Array.from(table.querySelectorAll('tbody tr')).map((row) => {
+          const cells = Array.from(row.querySelectorAll('td'))
+            .map((cell) => (cell.innerText || cell.textContent || '').replace(/\s+/g, ' ').trim());
+          const buttons = Array.from(row.querySelectorAll('button'));
+          const button = buttons.find((item) => /下载/.test(item.innerText || item.textContent || '')) || null;
+          const className = button ? String(button.className || '') : '';
+          const disabled = button
+            ? Boolean(button.disabled)
+              || button.getAttribute('aria-disabled') === 'true'
+              || /(^|\s)(disabled|arco-btn-disabled)(\s|$)/i.test(className)
+            : null;
+          return {
+            task_model_run_id: cells[0] || '',
+            platform: cells[1] || '',
+            workspace_status: cells[2] || '',
+            download_progress: cells[3] || '',
+            download_button_text: button
+              ? (button.innerText || button.textContent || '').replace(/\s+/g, ' ').trim()
+              : '',
+            download_button_disabled: disabled,
+            download_button_disabled_attribute: button ? Boolean(button.disabled) : null,
+            download_button_aria_disabled: button ? button.getAttribute('aria-disabled') : null,
+          };
+        }).filter((row) => row.task_model_run_id || row.platform);
+      });
+      if (rows.length > downloadRows.length) {
+        downloadRows = rows;
+        evidenceScreenshot = rel(screenshotPath);
+      }
       clickResults.push({ index: i, ok: true, newCalls: calls.length - before });
       console.log(`   clicked 下载列表 #${i}, new network calls=${calls.length - before}`);
       await page.keyboard.press('Escape').catch(() => {});
@@ -598,14 +635,32 @@ async function discoverDownloadList(opts) {
   }
 
   const actions = [...new Set(calls.map((c) => c.action).filter(Boolean))];
+  const expectedPlatforms = ((cfg && cfg.models) || [])
+    .map((model) => String(model.platform || '').trim())
+    .filter(Boolean);
+  const rowsByPlatform = new Map(downloadRows.map((row) => [row.platform, row]));
+  const allExpectedModelsPresent = expectedPlatforms.length > 0
+    && expectedPlatforms.every((platform) => rowsByPlatform.has(platform));
+  const allDownloadButtonsDisabled = allExpectedModelsPresent
+    && expectedPlatforms.every((platform) => rowsByPlatform.get(platform).download_button_disabled === true);
+  const artifactDownloadUnavailable = allExpectedModelsPresent && allDownloadButtonsDisabled;
   writeJSON(path.join(outDir, 'download_list_discover.json'), {
     url,
     labels,
     clickResults,
+    expected_platforms: expectedPlatforms,
+    download_rows: downloadRows,
+    all_expected_models_present: allExpectedModelsPresent,
+    all_download_buttons_disabled: allDownloadButtonsDisabled,
+    artifact_download_unavailable: artifactDownloadUnavailable,
+    classification: artifactDownloadUnavailable ? 'artifact_download_unavailable' : 'download_state_requires_review',
+    evidence_screenshot: evidenceScreenshot,
     actions,
     calls,
     saved_at: new Date().toISOString(),
   });
+  console.log(`==> download rows: ${downloadRows.length}; all expected present=${allExpectedModelsPresent}; all buttons disabled=${allDownloadButtonsDisabled}`);
+  console.log(`==> classification: ${artifactDownloadUnavailable ? 'artifact_download_unavailable' : 'download_state_requires_review'}`);
   console.log(`==> after click APIs: ${actions.join(', ') || '(none)'}`);
   console.log(`==> wrote ${rel(path.join(outDir, 'download_list_discover.json'))}`);
   await browser.close();
@@ -614,6 +669,8 @@ async function discoverDownloadList(opts) {
 async function probeTaskDetailNetwork(ctx, projectId, taskId, taskDir) {
   const page = await ctx.newPage();
   const calls = [];
+  const responses = [];
+  const pendingResponses = [];
   page.on('request', (req) => {
     const url = req.url();
     if (!url.includes('/api/top/ark/')) return;
@@ -623,6 +680,19 @@ async function probeTaskDetailNetwork(ctx, projectId, taskId, taskDir) {
       method: req.method(),
       postData: req.postData(),
     });
+  });
+  page.on('response', (resp) => {
+    const url = resp.url();
+    if (!url.includes('/api/top/ark/') || !/RuntimeMetricsList/i.test(url)) return;
+    const action = url.split('/').pop().split('?')[0];
+    const pending = resp.json()
+      .then((body) => responses.push({ action, status: resp.status(), body }))
+      .catch((err) => responses.push({
+        action,
+        status: resp.status(),
+        error: String((err && err.message) || err),
+      }));
+    pendingResponses.push(pending);
   });
   const urls = [
     `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/${projectId}/task/${taskId}`,
@@ -640,11 +710,13 @@ async function probeTaskDetailNetwork(ctx, projectId, taskId, taskDir) {
       calls.push({ error: String((err2 && err2.message) || err2), url: urls[1] });
     }
   }
+  await Promise.allSettled(pendingResponses);
   const actions = [...new Set(calls.map((c) => c.action).filter(Boolean))];
   writeJSON(path.join(taskDir, 'task_detail_network.json'), {
     urls,
     actions,
     calls,
+    runtime_metric_responses: responses,
     saved_at: new Date().toISOString(),
   });
   console.log(`==> task-detail APIs: ${actions.join(', ') || '(none captured)'}`);
@@ -817,8 +889,9 @@ async function collect(opts) {
       console.log(`==> got models: ${got.join(', ') || '(none)'}`);
       if (missing.length || extra.length) {
         const msg = `model set mismatch missing=${missing.join(',') || '-'} extra=${extra.join(',') || '-'}`;
-        if (opts['allow-partial']) console.warn(`   [warn] ${msg}`);
-        else throw new Error(`${msg}; pass --allow-partial to continue`);
+        const missingAllowed = missing.length && !extra.length && opts['allow-missing-models'];
+        if (missingAllowed || opts['allow-partial']) console.warn(`   [warn] ${msg}`);
+        else throw new Error(`${msg}; pass --allow-missing-models for expected omissions or --allow-partial to continue`);
       }
     }
 
@@ -860,25 +933,49 @@ async function collect(opts) {
         taskDir,
       );
     }
+    const configuredModels = (g1Config && g1Config.models) || [];
     const modelMap = {};
+    for (const meta of configuredModels) {
+      if (!meta.sheet || !meta.platform) continue;
+      modelMap[meta.sheet] = {
+        code: meta.code || meta.sheet,
+        platform: meta.platform,
+        real_name: '',
+        task_model_run_id: null,
+        audit_url: '',
+        missing: true,
+        artifact_missing: true,
+        missing_reason: '平台未发现该模型运行记录',
+      };
+    }
     for (const run of rows) {
       const sheetModel = g1SheetModel(run.modelRun.codeName, g1Config);
       if (sheetModel) {
-        const meta = ((g1Config && g1Config.models) || []).find((m) => m.sheet === sheetModel) || {};
+        const meta = configuredModels.find((m) => m.sheet === sheetModel) || {};
         modelMap[sheetModel] = {
           code: meta.code || '',
           platform: run.modelRun.codeName,
           real_name: run.modelRun.realName,
           task_model_run_id: run.modelRun.taskModelRunId,
           audit_url: `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${run.modelRun.taskModelRunId}?mode=audit`,
+          missing: false,
+          artifact_missing: false,
         };
       }
       await collectOneRun(ctx, statePath, run, taskDir, runOpts);
     }
+    const collectedSheetColumns = Object.entries(modelMap)
+      .filter(([, info]) => !info.missing)
+      .map(([sheet]) => sheet);
+    const missingSheetColumns = Object.entries(modelMap)
+      .filter(([, info]) => info.missing)
+      .map(([sheet]) => sheet);
     writeJSON(path.join(tasksDir, localId, 'model_map.json'), {
       period: (g1Config && g1Config.period) || '',
       project_id: projectId,
       sheet_columns: Object.keys(modelMap),
+      collected_sheet_columns: collectedSheetColumns,
+      missing_sheet_columns: missingSheetColumns,
       prompt_cheat: Boolean(runOpts.promptCheat),
       models: modelMap,
       generated_at: new Date().toISOString(),
@@ -1226,6 +1323,23 @@ function exportCookiesWithPython(cookieCopy, localStateCopy, statePath, extraEnv
   return count;
 }
 
+function exportedStateTempPath(statePath) {
+  return `${statePath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.pending`;
+}
+
+function installExportedState(cookieCopy, localStateCopy, statePath, extraEnv = {}) {
+  ensureDir(path.dirname(statePath));
+  const pending = exportedStateTempPath(statePath);
+  try {
+    const count = exportCookiesWithPython(cookieCopy, localStateCopy, pending, extraEnv);
+    csrfFromState(pending);
+    atomicWriteJSON(statePath, readJSON(pending));
+    return count;
+  } finally {
+    if (fs.existsSync(pending)) fs.rmSync(pending, { force: true });
+  }
+}
+
 function authFromChromeWindows(opts) {
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
   const profile = opts.profile || defaultChromeProfile();
@@ -1254,7 +1368,7 @@ Copy-Item -LiteralPath ($base + '\\Local State') -Destination '${localStateCopy.
 Write-Output $id
 `;
     shadowId = run('powershell', ['-NoProfile', '-Command', ps]).trim().split(/\r?\n/).pop();
-    const count = exportCookiesWithPython(cookieCopy, localStateCopy, statePath);
+    const count = installExportedState(cookieCopy, localStateCopy, statePath);
     console.log(`==> wrote ${rel(statePath)} (${count} cookies)`);
   } finally {
     if (shadowId) {
@@ -1275,7 +1389,7 @@ function authFromChromeUnix(opts) {
   try {
     const { cookieCopy, localStateCopy } = copyChromeCookieFiles(userDataDir, profile, tempDir);
     const password = chromeSafeStoragePassword(userDataDir);
-    const count = exportCookiesWithPython(cookieCopy, localStateCopy, statePath, {
+    const count = installExportedState(cookieCopy, localStateCopy, statePath, {
       CHROME_SAFE_STORAGE_PASSWORD: password,
     });
     console.log(`==> wrote ${rel(statePath)} (${count} cookies)`);
@@ -1286,7 +1400,7 @@ function authFromChromeUnix(opts) {
 
 async function authLogin(opts) {
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
-  const pendingStatePath = `${statePath}.pending`;
+  const pendingStatePath = exportedStateTempPath(statePath);
   const cfg = loadG1Config() || {};
   const projectId = Number(opts.project || cfg.project_id || 313);
   const loginUrl = opts.url
@@ -1320,7 +1434,7 @@ async function authLogin(opts) {
             taskKeyword: '',
             visibleColumns: VISIBLE_COLUMNS,
           });
-          fs.renameSync(pendingStatePath, statePath);
+          atomicWriteJSON(statePath, readJSON(pendingStatePath));
           console.log(`==> wrote ${rel(statePath)} (${cookies.length} cookies, Ark session verified)`);
           return;
         } catch (err) {

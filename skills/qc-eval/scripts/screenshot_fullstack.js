@@ -6,6 +6,7 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const HERE = __dirname;
 const SKILL_DIR = path.resolve(HERE, '..');
@@ -155,7 +156,8 @@ async function processOne(col, code, entry, viteport, backendPort) {
 }
 
 (async () => {
-  let viteport = 5200, bport = 8200;
+  let viteport = preferredPortBase(TASK_ID, 'screenshot-fullstack-vite', 8);
+  let bport = preferredPortBase(TASK_ID, 'screenshot-fullstack-api', 8);
   for (const [col, info] of Object.entries(map.models)) {
     try { await processOne(col, info.code, info.entry, viteport, bport); }
     catch (e) { console.error(`  fatal: ${e.message}`); }

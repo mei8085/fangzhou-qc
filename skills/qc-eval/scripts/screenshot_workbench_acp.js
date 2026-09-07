@@ -6,6 +6,7 @@ const { chromium } = require('playwright');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const HERE = __dirname;
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
@@ -169,7 +170,7 @@ async function main() {
   }
   const map = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'tasks', taskId, 'model_map.json'), 'utf8'));
   const browser = await chromium.launch({ headless: true });
-  let port = 5210;
+  let port = preferredPortBase(taskId, 'screenshot-workbench-acp', 8);
   try {
     for (const col of map.sheet_columns || Object.keys(map.models)) {
       const info = map.models[col];

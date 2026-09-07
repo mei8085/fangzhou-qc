@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "scenario": "artifact_download_unavailable",
+  "historical_reference": {
+    "task_id": "6699",
+    "captured_from_sheet": "GB6aQZ",
+    "reference_only": true,
+    "sheet_values": {
+      "题目是否可验证": "否",
+      "不可验证原因": "所有产物无法下载",
+      "反馈质量（作业质量）": "不合格",
+      "质量备注": "产物不可下载，无法验证",
+      "脏数据标签": "其他",
+      "脏数据标签理由": "产物不可下载，无法验证",
+      "红线问题": ""
+    }
+  },
+  "detection": {
+    "required_tab": "下载列表",
+    "require_all_expected_models": true,
+    "require_all_download_buttons_disabled": true,
+    "supporting_status_examples": [
+      "等待创建",
+      "尚未开始"
+    ],
+    "do_not_infer_from": [
+      "Workspace 解压结果为空",
+      "Workspace 只有说明文档",
+      "首轮上传产物是否存在"
+    ]
+  },
+  "sheet": {
+    "artifact_download_unavailable": true,
+    "verifiable": "否",
+    "verifiable_reason": "下载列表中全部预期模型的下载按钮均为禁用状态，产物不可下载，无法验证。",
+    "redline_issue": "",
+    "redline_note": ""
+  },
+  "model": {
+    "rating": "不合格",
+    "dirty_tag": "其他",
+    "dirty_tag_reason": "产物不可下载，无法验证",
+    "note_templates": [
+      "下载列表显示产物不可下载，无法验证；标注人给执行过程 {process_score} 分、产物质量 {artifact_score} 分，反馈质量为不合格。",
+      "任务页下载列表显示产物不可下载，无法验证；标注人给执行过程 {process_score} 分、产物质量 {artifact_score} 分，反馈质量为不合格。",
+      "平台下载列表表明产物不可下载，无法验证；标注人给执行过程 {process_score} 分、产物质量 {artifact_score} 分，反馈质量为不合格。",
+      "产物下载按钮处于禁用状态，产物不可下载，无法验证；标注人给执行过程 {process_score} 分、产物质量 {artifact_score} 分，反馈质量为不合格。"
+    ],
+    "platform_feedback_quality": "完全不可用",
+    "platform_audit_reason": "下载列表中产物不可下载，无法验证，反馈完全不可用。",
+    "platform_dirty_tag": "其他"
+  },
+  "evidence": {
+    "source": "tasks/<TASK_ID>/ark_g1/_discover_download_<N>.png",
+    "numbered_name": "<MODEL>_01_download_blocker.png",
+    "verify_name": "<MODEL>_verify.png",
+    "reuse_for_all_models": true
+  }
+}

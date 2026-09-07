@@ -10,20 +10,23 @@ from .paths import REPO_ROOT, SKILL_DIR, default_g1_source_xlsx
 
 CONFIG_PATH = SKILL_DIR / "config" / "g1.json"
 _FALLBACK_CONFIG = {
-    "period": "G3-new",
-    "project_id": 299,
-    "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/299/task/6397",
-    "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/299/review/{taskModelRunId}?mode=audit",
+    "period": "44期",
+    "project_id": 326,
+    "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/326/task/7841",
+    "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/326/review/{taskModelRunId}?mode=audit",
     "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
-    "source_xlsx": "docs/G3-new.xlsx",
-    "source_sheet": "G3-new coding质检",
-    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=ZqQaTd",
-    "feishu_sheet_id": "ZqQaTd",
+    "source_xlsx": "docs/44.xlsx",
+    "source_sheet": "Sheet1",
+    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=vD6HYi",
+    "feishu_sheet_id": "vD6HYi",
     "output_subdir": "ark_g1",
+    "allow_missing_models": True,
+    "missing_model_rating": "不合格",
     "models": [
-        {"sheet": "S450", "code": "S450", "platform": "tundra"},
-        {"sheet": "S283", "code": "S283", "platform": "sextant"},
-        {"sheet": "S225", "code": "S225", "platform": "ripple"},
+        {"sheet": "0825E", "code": "0825E", "platform": "harpoon"},
+        {"sheet": "0901B", "code": "0901B", "platform": "gazelle"},
+        {"sheet": "0819K-RLHF", "code": "0819K-RLHF", "platform": "finch"},
+        {"sheet": "0902F", "code": "0902F", "platform": "elixir"},
     ],
 }
 
@@ -95,10 +98,14 @@ PLATFORM_TO_SHEET = {v: k for k, v in SHEET_TO_PLATFORM.items()}
 PLATFORM_TO_CODE = {v: k for k, v in CODE_TO_PLATFORM.items()}
 SHEET_MODELS = list(SHEET_TO_PLATFORM.keys())
 PLATFORM_CODES = list(CODE_TO_PLATFORM.values())
+ALLOW_MISSING_MODELS = bool(_CONFIG.get("allow_missing_models"))
+MISSING_MODEL_RATING = str(_CONFIG.get("missing_model_rating") or "不合格")
+
+
 def sheet_model_label(sheet_name: str) -> str:
     """Return the Feishu audit-reason label with the Ark platform codeName.
 
-    Example: ``S450`` -> ``S450（tundra）``. Unknown sheet names
+    Example: ``0825E`` -> ``0825E（harpoon）``. Unknown sheet names
     are returned unchanged so other periods keep their original prefixes.
     """
     name = str(sheet_name or "").strip()

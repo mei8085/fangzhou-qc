@@ -6,9 +6,9 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'g1.json');
-const FALLBACK_PROJECT_ID = 299;
+const FALLBACK_PROJECT_ID = 326;
 const FALLBACK_PROJECT_URL =
-  'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/299/task/6397';
+  'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/326/task/7841';
 const FALLBACK_CHROME_PROFILE = 'Profile 4';
 
 function loadConfig() {
@@ -35,6 +35,9 @@ function loadConfig() {
     if (!has('--output-subdir')) argv.push('--output-subdir', cfg.output_subdir || 'ark_g1');
     if (cmd === 'collect' && platformCodes && !has('--expect-platform-codes')) {
       argv.push('--expect-platform-codes', platformCodes);
+    }
+    if (cmd === 'collect' && cfg.allow_missing_models && !has('--allow-missing-models')) {
+      argv.push('--allow-missing-models');
     }
   }
   if ((cmd === 'auth-login' || cmd === 'auth-from-chrome') && !has('--url')) {

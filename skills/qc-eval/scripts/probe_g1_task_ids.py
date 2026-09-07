@@ -24,6 +24,7 @@ from lib.g1 import (  # noqa: E402
     SOURCE_XLSX,
 )
 from lib.paths import default_g1_source_xlsx  # noqa: E402
+from lib.concurrency import atomic_write_json, validate_task_id  # noqa: E402
 
 
 def cell_text(value) -> str:
@@ -77,7 +78,11 @@ def main() -> int:
     parser.add_argument("--sheet", default=SOURCE_SHEET)
     parser.add_argument("--task-id", default=None, help="只打印该任务ID")
     parser.add_argument("--task-title", default=None, help="只打印该任务名")
-    parser.add_argument("--out", default="tasks/_g1_task_ids.json")
+    parser.add_argument(
+        "--out",
+        default=None,
+        help="输出 JSON；默认按任务写 tasks/<TASK_ID>/source_probe.json，无筛选时写全局索引",
+    )
     args = parser.parse_args()
 
     source = Path(args.source)
@@ -87,8 +92,9 @@ def main() -> int:
 
     sheet_title, header_row, headers, rows = load_rows(source, args.sheet)
     matches = rows
-    if args.task_id:
-        matches = [r for r in rows if r["task_id"] == str(args.task_id).strip()]
+    task_id = validate_task_id(args.task_id) if args.task_id else None
+    if task_id:
+        matches = [r for r in rows if r["task_id"] == task_id]
     if args.task_title:
         matches = [r for r in matches if r["task"] == args.task_title]
 
@@ -104,9 +110,13 @@ def main() -> int:
         "target_matches": matches,
         "workspace_id_rule": "use local source 任务ID; same ID is used to search the configured Ark project",
     }
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if args.out:
+        out_path = Path(args.out)
+    elif task_id:
+        out_path = Path("tasks") / task_id / "source_probe.json"
+    else:
+        out_path = Path("tasks/_g1_task_ids.json")
+    atomic_write_json(out_path, payload)
 
     print(f"period={PERIOD} source={source} sheet={sheet_title} header_row={header_row}")
     print(f"task rows={len(rows)}")

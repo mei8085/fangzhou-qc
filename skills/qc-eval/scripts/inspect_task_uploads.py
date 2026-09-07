@@ -100,6 +100,20 @@ def decode_text(raw: bytes, source: str) -> tuple[str, str]:
             return raw.decode(encoding), encoding
         except UnicodeDecodeError:
             continue
+    # Some legacy exports concatenate GB18030 and UTF-8 sections on line
+    # boundaries. Keep the same strict allowlist while decoding each line.
+    decoded_lines: list[str] = []
+    for line in raw.splitlines(keepends=True):
+        for encoding in ("utf-8", "gb18030"):
+            try:
+                decoded_lines.append(line.decode(encoding))
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            break
+    else:
+        return "".join(decoded_lines), "mixed:utf-8/gb18030-lines"
     raise ValueError(f"cannot decode text candidate as UTF-8/GB18030: {source}")
 
 

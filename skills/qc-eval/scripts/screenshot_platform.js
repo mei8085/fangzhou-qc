@@ -6,6 +6,7 @@ const { chromium } = require('playwright');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const HERE = __dirname;
 const SKILL_DIR = path.resolve(HERE, '..');
@@ -108,7 +109,7 @@ async function shot(col, code, entry, port) {
 }
 
 (async () => {
-  let port = 5190;
+  let port = preferredPortBase(TASK_ID, 'screenshot-platform', 8);
   for (const [col, info] of Object.entries(map.models)) {
     await shot(col, info.code, info.entry, port);
     port += 1;

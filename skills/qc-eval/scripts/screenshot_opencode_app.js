@@ -7,6 +7,7 @@ const path = require("path");
 const http = require("http");
 const { spawn, spawnSync } = require("child_process");
 const { chromium } = require("../node_modules/playwright");
+const { preferredPortBase } = require("./lib/concurrency");
 
 const repoRoot = path.resolve(__dirname, "../../..");
 
@@ -173,14 +174,15 @@ async function main() {
   const taskId = args.shift();
   if (!taskId) usage();
   let only = "";
-  let basePort = 5273;
+  let basePort = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--only") only = args[++i] || "";
-    else if (args[i] === "--base-port") basePort = Number(args[++i] || basePort);
+    else if (args[i] === "--base-port") basePort = Number(args[++i]);
     else usage();
   }
 
   const mapPath = path.join(repoRoot, "tasks", taskId, "model_map.json");
+  basePort ??= preferredPortBase(taskId, 'screenshot-opencode-app', 8);
   const modelMap = readJson(mapPath);
   const entries = Object.entries(modelMap.models);
   for (let i = 0; i < entries.length; i++) {

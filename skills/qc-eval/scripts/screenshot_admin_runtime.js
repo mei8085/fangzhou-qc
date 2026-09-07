@@ -5,12 +5,13 @@ const { chromium } = require('playwright');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const HERE = __dirname;
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
 
 function parseArgs(argv) {
-  const out = { id: null, only: null, basePort: 5373 };
+  const out = { id: null, only: null, basePort: null };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--only') out.only = argv[++i];
@@ -222,7 +223,7 @@ async function main() {
   const outDir = path.join(REPO_ROOT, 'delivery', args.id, 'screenshots');
   fs.mkdirSync(outDir, { recursive: true });
   const browser = await chromium.launch({ headless: true });
-  let port = args.basePort;
+  let port = args.basePort ?? preferredPortBase(args.id, 'screenshot-admin-runtime', 8);
   for (const [label, info] of Object.entries(map.models)) {
     if (args.only && args.only !== label && args.only !== info.code) continue;
     console.log(`==> ${label} (${info.code})`);

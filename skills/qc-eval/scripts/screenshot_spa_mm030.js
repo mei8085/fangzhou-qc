@@ -6,20 +6,22 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { reservePortBlock } = require('./lib/concurrency');
 
 const HERE = __dirname;
 const SKILL_DIR = path.resolve(HERE, '..');
 const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..');
 
 function parseArgs(argv) {
-  const out = { taskId: null, only: null };
+  const out = { taskId: null, only: null, basePort: null };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--only') out.only = argv[++i];
+    else if (a === '--base-port') out.basePort = Number(argv[++i]);
     else out.taskId = a;
   }
   if (!out.taskId) {
-    console.error('usage: screenshot_spa_mm030.js <TASK_ID> [--only <MODEL>]');
+    console.error('usage: screenshot_spa_mm030.js <TASK_ID> [--only <MODEL>] [--base-port PORT]');
     process.exit(2);
   }
   return out;
@@ -100,7 +102,7 @@ async function clickView(page, viewId) {
   await page.waitForTimeout(1800);
 }
 
-async function captureOne(taskId, modelName, info, index) {
+async function captureOne(taskId, modelName, info, index, apiPort, vitePort) {
   const code = info.code;
   const tag = safeName(modelName);
   const feDir = path.join(REPO_ROOT, 'tasks', taskId, 'extracted', code, info.entry);
@@ -111,8 +113,6 @@ async function captureOne(taskId, modelName, info, index) {
   fs.mkdirSync(logDir, { recursive: true });
 
   const py = process.env.QC_PYTHON || path.join(REPO_ROOT, 'tasks', taskId, '.venv', 'bin', 'python');
-  const apiPort = 8000;
-  const vitePort = 5500;
   const env = {
     ...process.env,
     APP_ENV: 'test',
@@ -183,10 +183,18 @@ async function main() {
   const mapPath = path.join(REPO_ROOT, 'tasks', args.taskId, 'model_map.json');
   const mm = JSON.parse(fs.readFileSync(mapPath, 'utf8'));
   const names = mm.sheet_columns && mm.sheet_columns.length ? mm.sheet_columns : Object.keys(mm.models || {});
-  let idx = 0;
-  for (const name of names) {
-    if (args.only && args.only !== name && args.only !== (mm.models[name] || {}).code) continue;
-    await captureOne(args.taskId, name, mm.models[name], idx++);
+  const lease = await reservePortBlock(args.taskId, 'screenshot-spa-mm030', 2, args.basePort);
+  console.log(`==> reserved API/Vite ports ${lease.base}/${lease.base + 1} for task ${args.taskId}`);
+  try {
+    let idx = 0;
+    for (const name of names) {
+      const info = mm.models[name] || {};
+      if (args.only && args.only !== name && args.only !== info.code) continue;
+      if (info.missing) continue;
+      await captureOne(args.taskId, name, info, idx++, lease.base, lease.base + 1);
+    }
+  } finally {
+    lease.release();
   }
 }
 

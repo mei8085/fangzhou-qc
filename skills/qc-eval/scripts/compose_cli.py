@@ -583,6 +583,9 @@ def main() -> int:
 
     out_dir = REPO_ROOT / "delivery" / args.task_id / "screenshots"
     for col, info in mm["models"].items():
+        if info.get("missing"):
+            print(f"==> {col} ({info.get('code') or col}) skipped (not submitted)")
+            continue
         code = info["code"]
         model_dir = task_dir / "extracted" / code / (info.get("entry") or ".")
         print(f"==> {col} ({code})")

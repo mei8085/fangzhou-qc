@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 
@@ -193,7 +194,7 @@ async function main() {
   const map = readJson(path.join(taskDir, 'model_map.json'));
   const browser = await chromium.launch({ headless: true });
   try {
-    let port = 5520;
+    let port = preferredPortBase(taskId, 'screenshot-didaoj-web', 8);
     for (const col of map.sheet_columns) {
       await screenshotModel(browser, taskId, col, map.models[col], port++, outDir);
     }

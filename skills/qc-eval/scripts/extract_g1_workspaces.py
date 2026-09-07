@@ -174,6 +174,10 @@ def process_task(task_id: str, tasks_dir: Path, *, force: bool) -> bool:
 
     print(f"==> task {task_id}")
     for sheet, info in models.items():
+        if info.get("missing"):
+            info["artifact_missing"] = True
+            print(f"  {sheet}/{info.get('platform') or '-'}: not submitted; skip workspace extraction")
+            continue
         platform = str(info.get("platform") or "").strip()
         run_id = str(info.get("task_model_run_id") or "").strip()
         code = str(info.get("code") or sheet).strip()

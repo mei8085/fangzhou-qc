@@ -213,6 +213,8 @@ def model_run_meta(model_name: str, model_map: dict) -> dict:
         "platform": info.get("platform") or SHEET_TO_PLATFORM.get(model_name, ""),
         "task_model_run_id": run_id,
         "audit_url": url,
+        "missing": bool(info.get("missing")),
+        "missing_reason": str(info.get("missing_reason") or "").strip(),
     }
 
 
@@ -249,6 +251,8 @@ def model_fill_row(qc: dict, model_name: str, model_map: dict) -> dict:
         "platform": meta["platform"],
         "task_model_run_id": meta["task_model_run_id"],
         "audit_url": meta["audit_url"],
+        "missing": meta["missing"],
+        "missing_reason": meta["missing_reason"],
         "fields": {
             "请选择该任务的质量": prompt_quality,
             "任务质量备注": prompt_note,
@@ -316,7 +320,10 @@ def render(task_id: str, qc: dict, model_map: dict | None = None) -> str:
         )
         lines.append(f"## {row['sheet']} / {row.get('platform') or ''}")
         lines.append("")
-        if row.get("audit_url"):
+        if row.get("missing"):
+            lines.append(f"录入页：无（{row.get('missing_reason') or '平台未发现该模型运行记录'}）")
+            lines.append("")
+        elif row.get("audit_url"):
             lines.append(f"录入页：{row['audit_url']}")
             lines.append("")
         lines.append(f"请选择该任务的质量：{fields.get('请选择该任务的质量', '')}")

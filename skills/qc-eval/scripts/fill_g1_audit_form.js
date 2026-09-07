@@ -11,7 +11,7 @@
  *
  * Usage:
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397 --only tundra
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 7841 --only harpoon
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397 --dry-run
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397 --headed
  */
@@ -19,6 +19,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const { atomicWriteJSON } = require('./lib/concurrency');
 
 const HERE = __dirname;
 const SKILL_DIR = path.resolve(HERE, '..');
@@ -93,8 +94,7 @@ function readJSON(file) {
 }
 
 function writeJSON(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+  atomicWriteJSON(file, value);
 }
 
 function sleep(ms) {
@@ -605,15 +605,23 @@ async function main() {
 
   const { fillPath, payload } = loadFillPayload(taskId);
   const fields = loadTemplateOptions();
-  const rows = (payload.models || []).filter((row) => modelMatches(row, opts.only));
-  if (!rows.length) {
+  const matchedRows = (payload.models || []).filter((row) => modelMatches(row, opts.only));
+  if (!matchedRows.length) {
     throw new Error(`no models matched ${JSON.stringify(opts.only || '*')} in ${rel(fillPath)}`);
+  }
+  const skippedRows = matchedRows.filter((row) => row.missing || (!row.audit_url && !row.task_model_run_id));
+  const rows = matchedRows.filter((row) => !skippedRows.includes(row));
+  if (!rows.length) {
+    throw new Error(`matched models have no Ark audit page: ${skippedRows.map((r) => r.sheet).join(',')}`);
   }
 
   const outDir = path.join(REPO_ROOT, 'tasks', String(taskId), 'ark_g1');
   fs.mkdirSync(outDir, { recursive: true });
   console.log(`==> task ${taskId} models=${rows.map((r) => r.platform || r.sheet).join(',')} dry-run=${!!opts['dry-run']}`);
   console.log(`==> fill file ${rel(fillPath)}`);
+  if (skippedRows.length) {
+    console.log(`==> skip not-submitted models (no audit page): ${skippedRows.map((r) => r.sheet).join(',')}`);
+  }
 
   const browser = await launchBrowser(opts.headed);
   const ctx = await browser.newContext({
@@ -659,6 +667,11 @@ async function main() {
     ok: !failed,
     error: failed ? String(failed.message || failed) : '',
     results,
+    skipped_models: skippedRows.map((row) => ({
+      sheet: row.sheet,
+      platform: row.platform,
+      reason: row.missing_reason || '平台未发现该模型运行记录',
+    })),
     api_actions: [...new Set(calls.map((c) => c.action))],
   };
   const summaryPath = path.join(outDir, 'audit_fill_result.json');

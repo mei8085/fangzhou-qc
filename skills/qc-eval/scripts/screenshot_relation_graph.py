@@ -162,42 +162,22 @@ def render_html_for(model_code: str, model_dir: Path, chart_key: str, out_html: 
 def screenshot_html(html_paths: list, png_paths: list) -> None:
     assert len(html_paths) == len(png_paths)
     js = HERE / "_render_screenshot.cjs"
-    js.write_text(
-        r"""
-const fs = require('fs');
-const { chromium } = require('playwright');
-(async () => {
-  const items = JSON.parse(fs.readFileSync(process.argv[2], 'utf-8'));
-  const browser = await chromium.launch({ headless: true });
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 760 } });
-  const page = await ctx.newPage();
-  for (const it of items) {
-    try {
-      const url = 'file:///' + it.html.replace(/\\/g, '/');
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
-    } catch (e) { console.log('goto warn', it.html, e.message); }
-    await page.waitForTimeout(2500);
-    try {
-      await page.screenshot({ path: it.png, fullPage: false });
-      console.log('shot', it.png);
-    } catch (e) { console.log('shot fail', it.png, e.message); }
-  }
-  await browser.close();
-})().catch(e => { console.error(e); process.exit(2); });
-""",
-        encoding="utf-8",
-    )
     items = [{"html": str(h.resolve()), "png": str(p.resolve())} for h, p in zip(html_paths, png_paths)]
     skills_dir = HERE.parent
-    payload_file = HERE / "_render_payload.json"
-    payload_file.write_text(json.dumps(items), encoding="utf-8")
-    r = subprocess.run(
-        ["node", str(js), str(payload_file)],
-        cwd=str(skills_dir), capture_output=True, text=True, timeout=600,
-    )
-    print(r.stdout)
-    if r.returncode != 0:
-        print(r.stderr, file=sys.stderr)
+    payload = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8", dir=HERE)
+    json.dump(items, payload)
+    payload.close()
+    payload_file = Path(payload.name)
+    try:
+        r = subprocess.run(
+            ["node", str(js), str(payload_file)],
+            cwd=str(skills_dir), capture_output=True, text=True, timeout=600,
+        )
+        print(r.stdout)
+        if r.returncode != 0:
+            print(r.stderr, file=sys.stderr)
+    finally:
+        payload_file.unlink(missing_ok=True)
 
 
 def main() -> int:

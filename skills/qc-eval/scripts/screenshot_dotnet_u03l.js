@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright');
+const { preferredPortBase, reservePortBlock } = require('./lib/concurrency');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const SSH_HOST = 'u03l';
@@ -168,7 +169,7 @@ async function remoteComposeDown(remoteRepo, project) {
   await ssh(`cd ${q(remoteRepo)} 2>/dev/null && docker compose -p ${q(project)} down -v --remove-orphans || true`, { quiet: true });
 }
 
-async function processModel(taskId, col, info, idx) {
+async function processModel(taskId, col, info, idx, localBase, remoteBase, mysqlBase) {
   const tag = col.replaceAll(' ', '_');
   const outDir = path.join(REPO_ROOT, 'delivery', taskId, 'screenshots');
   fs.mkdirSync(outDir, { recursive: true });
@@ -180,9 +181,9 @@ async function processModel(taskId, col, info, idx) {
 
   const remoteRepo = `${REMOTE_BASE}/${taskId}/${info.code}/repo`;
   const project = `qc_${taskId.toLowerCase()}_${info.code.toLowerCase()}`;
-  const remotePort = 46587 + idx;
-  const mysqlPort = 47060 + idx;
-  const localPort = 48587 + idx;
+  const remotePort = remoteBase + idx;
+  const mysqlPort = mysqlBase + idx;
+  const localPort = localBase + idx;
   console.log(`\n==> ${col} (${info.code}) on ${SSH_HOST}`);
   await syncRepo(localRepo, remoteRepo);
   await remoteComposeDown(remoteRepo, project);
@@ -228,9 +229,19 @@ async function main() {
   const host = await ssh('hostname && docker --version && docker compose version', { quiet: false });
   if (host.code !== 0) process.exit(host.code);
   const mm = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'tasks', taskId, 'model_map.json'), 'utf8'));
-  let idx = 0;
-  for (const col of mm.sheet_columns || Object.keys(mm.models)) {
-    await processModel(taskId, col, mm.models[col], idx++);
+  const cols = (mm.sheet_columns || Object.keys(mm.models)).filter((col) => !(mm.models[col] || {}).missing);
+  const count = Math.max(1, cols.length);
+  const localLease = await reservePortBlock(taskId, 'screenshot-dotnet-local', count);
+  const remoteBase = preferredPortBase(taskId, 'screenshot-dotnet-remote', count);
+  const mysqlBase = preferredPortBase(taskId, 'screenshot-dotnet-mysql', count);
+  console.log(`==> task-scoped ports local=${localLease.base} remote=${remoteBase} mysql=${mysqlBase}`);
+  try {
+    let idx = 0;
+    for (const col of cols) {
+      await processModel(taskId, col, mm.models[col], idx++, localLease.base, remoteBase, mysqlBase);
+    }
+  } finally {
+    localLease.release();
   }
 }
 

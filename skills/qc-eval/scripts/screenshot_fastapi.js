@@ -8,12 +8,13 @@ const { chromium } = require('playwright');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const HERE = __dirname;
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
 
 function parseArgs(argv) {
-  const out = { id: null, only: null, basePort: 8100, keep: false };
+  const out = { id: null, only: null, basePort: null, keep: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--only') out.only = argv[++i];
@@ -128,9 +129,10 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
 
   const entries = Object.entries(map.models).filter(([col]) => !args.only || col === args.only);
+  const basePort = args.basePort ?? preferredPortBase(taskId, 'screenshot-fastapi', 8);
   let i = 0;
   for (const [col, info] of entries) {
-    const port = args.basePort + i;
+    const port = basePort + i;
     i++;
     try {
       await screenshotOne(taskId, col, info.code, port, outDir);

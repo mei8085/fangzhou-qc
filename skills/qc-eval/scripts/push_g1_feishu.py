@@ -39,6 +39,7 @@ from lib.g1 import (  # noqa: E402
     to_feishu_dirty_tag,
 )
 from lib.label_options import LABEL_HEADER  # noqa: E402
+from lib.concurrency import DirectoryLock  # noqa: E402
 from push_feishu import (  # noqa: E402
     READ_ONLY_HEADERS,
     build_push_targets,
@@ -166,6 +167,11 @@ def main() -> int:
         default="",
         help="只上传该模型的验证截图，文字列和其他模型截图都不写",
     )
+    parser.add_argument(
+        "--list-remote-headers",
+        action="store_true",
+        help="只读打印远端表头及列号，不写入任何内容",
+    )
     args = parser.parse_args()
 
     if args.sheet_id != DEFAULT_SHEET_ID:
@@ -202,6 +208,13 @@ def main() -> int:
     print(f"    local xlsx: {xlsx}")
     print(f"    local task: {local_title}")
 
+    write_lock = None
+    if args.write:
+        lock_path = REPO_ROOT / ".qc-eval" / "locks" / f"feishu-{args.sheet_id}.lock"
+        print(f"    waiting for Feishu write lock: {lock_path.relative_to(REPO_ROOT)}")
+        write_lock = DirectoryLock(lock_path, timeout=600, stale_after=3600).acquire()
+        print("    Feishu write lock acquired")
+
     token = resolve_spreadsheet_token(args.wiki_url, args.profile)
     meta = get_sheet_meta(token, args.sheet_id, args.profile)
     title = str(meta.get("title", "")).strip()
@@ -213,6 +226,10 @@ def main() -> int:
         int(meta["grid_properties"]["column_count"]),
         args.profile,
     )
+    if args.list_remote_headers:
+        for header, col in sorted(remote_headers.items(), key=lambda item: item[1]):
+            print(f"    {get_column_letter(col)}: {header!r}")
+        return 0
     row, remote_title = find_remote_row_by_task_id(
         token, args.sheet_id, row_count, remote_headers, args.task_id, args.profile
     )
@@ -322,6 +339,8 @@ def main() -> int:
             image_count += 1
 
     print(f"==> 完成：文字 {text_count} 单元格，图片 {image_count} 单元格 ({'dry-run' if dry else '已写入'})")
+    if write_lock:
+        write_lock.release()
     return 0
 
 

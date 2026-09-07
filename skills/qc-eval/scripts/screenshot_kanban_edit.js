@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { chromium } = require('playwright');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const TERMINAL_FONT = [
@@ -220,7 +221,7 @@ async function main() {
   }
   const browser = await chromium.launch({ headless: true });
   try {
-    let port = 5560;
+    let port = preferredPortBase(taskId, 'screenshot-kanban-edit', 8);
     for (const col of mm.sheet_columns) {
       await processModel(browser, taskId, col, mm.models[col], port++, outDir);
     }

@@ -27,6 +27,7 @@ const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { reservePortBlock } = require('./lib/concurrency');
 
 function sha1File(p) {
   return crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex');
@@ -37,7 +38,7 @@ const SKILL_DIR = path.resolve(HERE, '..');
 const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..');
 
 function parseArgs(argv) {
-  const out = { id: null, only: null, basePort: 5173, keep: false, printSteps: false, ifAnnotatorWeb: false };
+  const out = { id: null, only: null, basePort: null, keep: false, printSteps: false, ifAnnotatorWeb: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--only') out.only = argv[++i];
@@ -139,7 +140,9 @@ function resolveEntryDir(taskDir, info) {
   const cands = [];
   for (const base of bases) {
     cands.push(path.join(base, explicit));
+    cands.push(path.join(base, explicit, 'web'));
     cands.push(base);
+    cands.push(path.join(base, 'web'));
     cands.push(path.join(base, 'frontend'));
     cands.push(path.join(base, 'frontend', 'web'));
     // Some full-stack artifacts are symlinked to backend/ for Python tests; the
@@ -572,6 +575,13 @@ async function screenshotConfiguredModel(browser, label, code, entryDir, outDir,
         await locator.click({ timeout: 10000 });
         await page.waitForTimeout(step.action_delay_ms || 700);
       }
+      if (step.select_option) {
+        const selection = step.select_option;
+        const locator = page.locator(selection.selector).first();
+        await locator.waitFor({ state: 'visible', timeout: 10000 });
+        await locator.selectOption(selection.value);
+        await page.waitForTimeout(step.action_delay_ms || 700);
+      }
       if (step.wait_for_text) {
         await page.getByText(step.wait_for_text, { exact: false }).first().waitFor({ state: 'visible', timeout: 10000 });
       }
@@ -611,35 +621,49 @@ async function main() {
   const screenshotConfig = fs.existsSync(screenshotConfigPath)
     ? JSON.parse(fs.readFileSync(screenshotConfigPath, 'utf8'))
     : {};
-  if (args.printSteps) {
-    printManualSteps(args.id, map, args.basePort);
-    return;
-  }
-  const outDir = path.join(REPO_ROOT, 'delivery', args.id, 'screenshots');
-  fs.mkdirSync(outDir, { recursive: true });
+  const count = Math.max(1, Object.keys(map.models || {}).length);
+  const lease = await reservePortBlock(args.id, 'screenshot-vue', count, args.basePort);
+  console.log(`==> reserved local ports ${lease.base}-${lease.base + count - 1} for task ${args.id}`);
+  try {
+    if (args.printSteps) {
+      printManualSteps(args.id, map, lease.base);
+      return;
+    }
+    const outDir = path.join(REPO_ROOT, 'delivery', args.id, 'screenshots');
+    fs.mkdirSync(outDir, { recursive: true });
 
-  const browser = await chromium.launch({ headless: true });
-  let port = args.basePort;
-  for (const [col, info] of Object.entries(map.models)) {
-    if (args.only && col !== args.only) continue;
-    if (args.ifAnnotatorWeb && !modelHasWebAttachment(taskDir, info.platform || info.code)) {
-      console.log(`==> ${col} (${info.code})  skipped (no web-like annotator attachment)`);
-      continue;
+    const browser = await chromium.launch({ headless: true });
+    try {
+      let port = lease.base;
+      for (const [col, info] of Object.entries(map.models)) {
+        if (args.only && col !== args.only) continue;
+        if (info.missing) {
+          console.log(`==> ${col} (${info.code || col}) skipped (not submitted)`);
+          continue;
+        }
+        if (args.ifAnnotatorWeb && !modelHasWebAttachment(taskDir, info.platform || info.code)) {
+          console.log(`==> ${col} (${info.code})  skipped (no web-like annotator attachment)`);
+          continue;
+        }
+        const entryDir = resolveEntryDir(taskDir, info);
+        console.log(`==> ${col} (${info.code})  entry=${path.relative(path.join(taskDir, 'extracted', info.code), entryDir) || '.'}`);
+        if (!fs.existsSync(path.join(entryDir, 'package.json'))) {
+          console.error(`   [skip] no package.json at ${entryDir}`);
+          continue;
+        }
+        const modelConfig = (screenshotConfig.models || {})[col];
+        if (modelConfig) {
+          await screenshotConfiguredModel(browser, col, info.code, entryDir, outDir, port, args.keep, modelConfig);
+        } else {
+          await screenshotModel(browser, col, info.code, entryDir, outDir, port, args.keep);
+        }
+        port += 1;
+      }
+    } finally {
+      await browser.close();
     }
-    const entryDir = resolveEntryDir(taskDir, info);
-    console.log(`==> ${col} (${info.code})  entry=${path.relative(path.join(taskDir, 'extracted', info.code), entryDir) || '.'}`);
-    if (!fs.existsSync(path.join(entryDir, 'package.json'))) {
-      console.error(`   [skip] no package.json at ${entryDir}`);
-      continue;
-    }
-    const modelConfig = (screenshotConfig.models || {})[col];
-    if (modelConfig) {
-      await screenshotConfiguredModel(browser, col, info.code, entryDir, outDir, port, args.keep, modelConfig);
-    } else {
-      await screenshotModel(browser, col, info.code, entryDir, outDir, port, args.keep);
-    }
-    port += 1;
+  } finally {
+    lease.release();
   }
-  await browser.close();
 }
 main().catch(e => { console.error(e); process.exit(1); });

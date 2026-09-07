@@ -6,6 +6,7 @@ const path = require('path');
 const http = require('http');
 const { spawn, spawnSync } = require('child_process');
 const { chromium } = require('playwright');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 
@@ -402,16 +403,17 @@ async function main() {
     process.exit(2);
   }
   let only = '';
-  let basePort = 5530;
+  let basePort = null;
   let baseUrl = '';
   let staticBuild = false;
   for (let i = 3; i < process.argv.length; i += 1) {
     if (process.argv[i] === '--only') only = process.argv[++i] || '';
-    else if (process.argv[i] === '--base-port') basePort = Number(process.argv[++i] || basePort);
+    else if (process.argv[i] === '--base-port') basePort = Number(process.argv[++i]);
     else if (process.argv[i] === '--base-url') baseUrl = process.argv[++i] || '';
     else if (process.argv[i] === '--static-build') staticBuild = true;
   }
   const taskDir = path.join(REPO_ROOT, 'tasks', taskId);
+  basePort ??= preferredPortBase(taskId, 'screenshot-clickvisual-logs', 8);
   const outDir = path.join(REPO_ROOT, 'delivery', taskId, 'screenshots');
   fs.mkdirSync(outDir, { recursive: true });
   for (const f of fs.readdirSync(outDir)) {

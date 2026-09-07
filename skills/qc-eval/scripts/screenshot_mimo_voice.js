@@ -4,6 +4,7 @@ const { chromium } = require('playwright');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { acquireNamedLock } = require('./lib/concurrency');
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const taskId = process.argv[2];
@@ -139,6 +140,9 @@ async function captureModel(browser, col) {
 }
 
 (async () => {
+  // These projects hard-code 5173-5176/8000/8765 in their frontend proxy setup.
+  // Serialize this legacy runner while the general runners use task-scoped ports.
+  const lease = await acquireNamedLock('screenshot-mimo-voice-fixed-ports');
   const browser = await chromium.launch({ headless: true });
   try {
     for (const col of map.sheet_columns) {
@@ -146,6 +150,7 @@ async function captureModel(browser, col) {
     }
   } finally {
     await browser.close();
+    lease.release();
   }
 })().catch((err) => {
   console.error(err);

@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { chromium } = require('playwright');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const taskId = process.argv[2];
@@ -17,18 +18,19 @@ if (!taskId) {
 }
 
 let route = '/workspace';
-let basePort = 5310;
+let basePort = null;
 for (let i = 3; i < process.argv.length; i += 1) {
   if (process.argv[i] === '--route') {
     route = process.argv[i + 1] || route;
     i += 1;
   } else if (process.argv[i] === '--base-port') {
-    basePort = Number(process.argv[i + 1] || basePort);
+    basePort = Number(process.argv[i + 1]);
     i += 1;
   }
 }
 
 const taskDir = path.join(REPO_ROOT, 'tasks', taskId);
+basePort ??= preferredPortBase(taskId, 'screenshot-next-workspace', 8);
 const outDir = path.join(REPO_ROOT, 'delivery', taskId, 'screenshots');
 fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(path.join(taskDir, 'logs'), { recursive: true });

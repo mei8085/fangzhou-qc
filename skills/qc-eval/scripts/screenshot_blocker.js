@@ -19,13 +19,14 @@ const { chromium } = require('playwright');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { preferredPortBase } = require('./lib/concurrency');
 
 const HERE = __dirname;
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
 
 function parseArgs(argv) {
   const out = {
-    id: null, only: null, basePort: 5190,
+    id: null, only: null, basePort: null,
     route: '/#/dashboard/index', overlayTimeout: 30000,
   };
   for (let i = 2; i < argv.length; i++) {
@@ -159,7 +160,7 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });
-  let port = args.basePort;
+  let port = args.basePort ?? preferredPortBase(args.id, 'screenshot-blocker', 8);
   for (const [col, info] of Object.entries(map.models)) {
     if (args.only && col !== args.only) continue;
     await captureOne(browser, col, info, port, outDir, args.id, args.route, args.overlayTimeout);
