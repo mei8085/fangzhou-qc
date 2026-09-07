@@ -157,7 +157,8 @@ def _render_compose(task_id: str, codes: list[str]) -> str:
 
     # postgres init: create one DB per model
     db_creates = "\n".join(
-        f"    CREATE DATABASE {rc.db_name(task_id, c)};" for c in codes
+        '    CREATE DATABASE "' + rc.db_name(task_id, c).replace('"', '""') + '";'
+        for c in codes
     )
     init_sql = (
         f"#!/bin/sh\nset -e\n"

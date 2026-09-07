@@ -96,7 +96,7 @@ notes:
   auth-from-chrome copies volcengine cookies from the local Chrome profile (Windows VSS / macOS Keychain / Linux). The default profile comes from config/g1.json chrome_profile when present, otherwise Default.
   If cookie export fails, it falls back to auth-login (headed Playwright window).
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
-  collect reads first-round Prompt uploads, task/model rows, per-run evaluation/audit data, 下载列表, workspace zip, and session trajectory JSON.
+  collect requires a same-task discover-download result, then reads first-round Prompt uploads and per-run data. Models with disabled download buttons keep only metadata/evaluation scores; downloadable models also collect audit data, 下载列表, workspace zip, and trajectory JSON.
   After CaseBffV1CrowdtestTaskGet, collect downloads and inspects first-round uploads, then scans page + uploaded text for round-quota cheating. A hit skips workspace/trajectory/download-list.
   The current fetch_g1_platform.js wrapper reads its project and expected model codes from config/g1.json.`);
   process.exit(code);
@@ -638,12 +638,33 @@ async function discoverDownloadList(opts) {
   const expectedPlatforms = ((cfg && cfg.models) || [])
     .map((model) => String(model.platform || '').trim())
     .filter(Boolean);
-  const rowsByPlatform = new Map(downloadRows.map((row) => [row.platform, row]));
+  const rowsByPlatform = new Map(downloadRows.map((row) => [String(row.platform || '').trim().toLowerCase(), row]));
+  const presentPlatforms = expectedPlatforms.filter((platform) => rowsByPlatform.has(platform.toLowerCase()));
+  const missingExpectedPlatforms = expectedPlatforms.filter((platform) => !rowsByPlatform.has(platform.toLowerCase()));
+  const downloadUnavailablePlatforms = presentPlatforms.filter(
+    (platform) => rowsByPlatform.get(platform.toLowerCase()).download_button_disabled === true,
+  );
+  const downloadAvailablePlatforms = presentPlatforms.filter(
+    (platform) => rowsByPlatform.get(platform.toLowerCase()).download_button_disabled === false,
+  );
+  const downloadUnknownPlatforms = presentPlatforms.filter(
+    (platform) => typeof rowsByPlatform.get(platform.toLowerCase()).download_button_disabled !== 'boolean',
+  );
   const allExpectedModelsPresent = expectedPlatforms.length > 0
-    && expectedPlatforms.every((platform) => rowsByPlatform.has(platform));
+    && missingExpectedPlatforms.length === 0;
   const allDownloadButtonsDisabled = allExpectedModelsPresent
-    && expectedPlatforms.every((platform) => rowsByPlatform.get(platform).download_button_disabled === true);
-  const artifactDownloadUnavailable = allExpectedModelsPresent && allDownloadButtonsDisabled;
+    && expectedPlatforms.every(
+      (platform) => rowsByPlatform.get(platform.toLowerCase()).download_button_disabled === true,
+    );
+  const allDownloadButtonsClassified = presentPlatforms.length > 0 && downloadUnknownPlatforms.length === 0;
+  const allPresentArtifactsDownloadUnavailable = allDownloadButtonsClassified
+    && downloadUnavailablePlatforms.length === presentPlatforms.length;
+  let classification = 'download_state_requires_review';
+  if (allDownloadButtonsClassified) {
+    if (allPresentArtifactsDownloadUnavailable) classification = 'all_artifacts_download_unavailable';
+    else if (downloadUnavailablePlatforms.length) classification = 'partial_artifact_download_unavailable';
+    else classification = 'all_artifacts_download_available';
+  }
   writeJSON(path.join(outDir, 'download_list_discover.json'), {
     url,
     labels,
@@ -652,18 +673,60 @@ async function discoverDownloadList(opts) {
     download_rows: downloadRows,
     all_expected_models_present: allExpectedModelsPresent,
     all_download_buttons_disabled: allDownloadButtonsDisabled,
-    artifact_download_unavailable: artifactDownloadUnavailable,
-    classification: artifactDownloadUnavailable ? 'artifact_download_unavailable' : 'download_state_requires_review',
+    all_download_buttons_classified: allDownloadButtonsClassified,
+    all_present_artifacts_download_unavailable: allPresentArtifactsDownloadUnavailable,
+    artifact_download_unavailable: allPresentArtifactsDownloadUnavailable,
+    download_unavailable_platforms: downloadUnavailablePlatforms,
+    download_available_platforms: downloadAvailablePlatforms,
+    download_unknown_platforms: downloadUnknownPlatforms,
+    missing_expected_platforms: missingExpectedPlatforms,
+    classification,
     evidence_screenshot: evidenceScreenshot,
     actions,
     calls,
     saved_at: new Date().toISOString(),
   });
-  console.log(`==> download rows: ${downloadRows.length}; all expected present=${allExpectedModelsPresent}; all buttons disabled=${allDownloadButtonsDisabled}`);
-  console.log(`==> classification: ${artifactDownloadUnavailable ? 'artifact_download_unavailable' : 'download_state_requires_review'}`);
+  console.log(`==> download rows: ${downloadRows.length}; all expected present=${allExpectedModelsPresent}; all present buttons classified=${allDownloadButtonsClassified}`);
+  console.log(`==> unavailable=${downloadUnavailablePlatforms.join(',') || '-'}; available=${downloadAvailablePlatforms.join(',') || '-'}; unknown=${downloadUnknownPlatforms.join(',') || '-'}`);
+  console.log(`==> classification: ${classification}`);
   console.log(`==> after click APIs: ${actions.join(', ') || '(none)'}`);
   console.log(`==> wrote ${rel(path.join(outDir, 'download_list_discover.json'))}`);
   await browser.close();
+}
+
+function loadDownloadAvailability(taskDir, taskId, rows) {
+  const discoveryPath = path.join(taskDir, 'download_list_discover.json');
+  if (!fs.existsSync(discoveryPath)) {
+    throw new Error(`missing ${rel(discoveryPath)}; run discover-download before collect`);
+  }
+  const discovery = readJSON(discoveryPath);
+  if (!String(discovery.url || '').replace(/\/$/, '').endsWith(`/task/${taskId}`)) {
+    throw new Error(`${rel(discoveryPath)} does not belong to Ark task ${taskId}; rerun discover-download`);
+  }
+  const rowsByPlatform = new Map(
+    (discovery.download_rows || []).map((row) => [String(row.platform || '').trim().toLowerCase(), row]),
+  );
+  const unavailable = new Set();
+  const available = new Set();
+  const problems = [];
+  for (const run of rows) {
+    const platform = String((run.modelRun && run.modelRun.codeName) || '').trim().toLowerCase();
+    const row = rowsByPlatform.get(platform);
+    if (!row) {
+      problems.push(`${platform || '(unknown)'} missing from download list`);
+    } else if (row.download_button_disabled === true) {
+      unavailable.add(platform);
+    } else if (row.download_button_disabled === false) {
+      available.add(platform);
+    } else {
+      problems.push(`${platform || '(unknown)'} download button state is unknown`);
+    }
+  }
+  if (problems.length) {
+    throw new Error(`download availability gate is incomplete: ${problems.join('; ')}; rerun discover-download or review manually`);
+  }
+  console.log(`==> download gate: unavailable=${[...unavailable].join(',') || '-'}; available=${[...available].join(',') || '-'}`);
+  return { discovery, unavailable, available };
 }
 
 async function probeTaskDetailNetwork(ctx, projectId, taskId, taskDir) {
@@ -738,6 +801,11 @@ async function collectOneRun(ctx, statePath, run, taskDir, opts) {
   } else {
     const evaluation = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelEvaluationGet', { taskModelRunId: runId });
     writeJSON(evaluationPath, evaluation);
+  }
+  const platform = String(run.modelRun.codeName || '').trim().toLowerCase();
+  if (opts.artifactDownloadUnavailablePlatforms.has(platform)) {
+    console.log('   [artifact] download button disabled; kept model metadata and scores, skipped attachments/audit/workspace/trajectory');
+    return;
   }
   try {
     const evaluation = readJSON(evaluationPath);
@@ -878,6 +946,10 @@ async function collect(opts) {
       writeJSON(modelRunsPath, { query: { projectId, taskKeyword, localId }, ...list, result: rows });
     }
 
+    const downloadAvailability = loadDownloadAvailability(taskDir, taskId, rows);
+    runOpts.artifactDownloadUnavailablePlatforms = downloadAvailability.unavailable;
+    runOpts.artifactDownloadAvailablePlatforms = downloadAvailability.available;
+
     const expectedCodes = opts['expect-platform-codes']
       ? String(opts['expect-platform-codes']).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [];
@@ -924,12 +996,15 @@ async function collect(opts) {
     if (!opts['skip-detail-probe']) {
       await probeTaskDetailNetwork(ctx, projectId, taskId, taskDir);
     }
-    if (!runOpts.skipDownloadList) {
+    const downloadableRows = rows.filter((run) => runOpts.artifactDownloadAvailablePlatforms.has(
+      String((run.modelRun && run.modelRun.codeName) || '').trim().toLowerCase(),
+    ));
+    if (!runOpts.skipDownloadList && downloadableRows.length) {
       runOpts.latestDownloadList = await fetchLatestDownloadList(
         ctx,
         statePath,
         taskId,
-        rows.map((r) => r.modelRun.taskModelRunId),
+        downloadableRows.map((r) => r.modelRun.taskModelRunId),
         taskDir,
       );
     }
@@ -945,6 +1020,8 @@ async function collect(opts) {
         audit_url: '',
         missing: true,
         artifact_missing: true,
+        artifact_download_unavailable: false,
+        artifact_download_state: 'not_submitted',
         missing_reason: '平台未发现该模型运行记录',
       };
     }
@@ -959,7 +1036,15 @@ async function collect(opts) {
           task_model_run_id: run.modelRun.taskModelRunId,
           audit_url: `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${run.modelRun.taskModelRunId}?mode=audit`,
           missing: false,
-          artifact_missing: false,
+          artifact_missing: runOpts.artifactDownloadUnavailablePlatforms.has(
+            String(run.modelRun.codeName || '').trim().toLowerCase(),
+          ),
+          artifact_download_unavailable: runOpts.artifactDownloadUnavailablePlatforms.has(
+            String(run.modelRun.codeName || '').trim().toLowerCase(),
+          ),
+          artifact_download_state: runOpts.artifactDownloadUnavailablePlatforms.has(
+            String(run.modelRun.codeName || '').trim().toLowerCase(),
+          ) ? 'unavailable' : 'available',
         };
       }
       await collectOneRun(ctx, statePath, run, taskDir, runOpts);

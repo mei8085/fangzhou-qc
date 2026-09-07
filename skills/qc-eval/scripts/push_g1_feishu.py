@@ -194,6 +194,11 @@ def main() -> int:
     dry = not args.write
     local_xlsx = Path(args.local_xlsx) if args.local_xlsx else None
     xlsx, ws, local_headers = load_delivery(args.task_id, local_xlsx)
+    from check_ai_feedback import check_task as check_ai_feedback, workbook_labels
+    issues = check_ai_feedback(REPO_ROOT / "tasks" / args.task_id, workbook_labels(ws))
+    if issues:
+        print("错误：AI评价证据未通过：" + "; ".join(issues), file=sys.stderr)
+        return 2
     if "任务ID" in local_headers:
         local_task_id = str(ws.cell(2, local_headers["任务ID"]).value or "").strip()
         if local_task_id and local_task_id != args.task_id:

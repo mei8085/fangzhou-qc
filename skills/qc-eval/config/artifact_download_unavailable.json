@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "artifact_download_unavailable",
   "historical_reference": {
     "task_id": "6699",
@@ -17,8 +17,11 @@
   },
   "detection": {
     "required_tab": "下载列表",
-    "require_all_expected_models": true,
-    "require_all_download_buttons_disabled": true,
+    "scope": "per_submitted_model",
+    "require_each_submitted_model_button_classified": true,
+    "disabled_button_action": "apply_template_and_skip_model_qc",
+    "enabled_button_action": "continue_normal_model_qc",
+    "unknown_button_action": "stop_for_manual_review",
     "supporting_status_examples": [
       "等待创建",
       "尚未开始"
@@ -32,7 +35,7 @@
   "sheet": {
     "artifact_download_unavailable": true,
     "verifiable": "否",
-    "verifiable_reason": "下载列表中全部预期模型的下载按钮均为禁用状态，产物不可下载，无法验证。",
+    "verifiable_reason": "下载列表中所有已提交模型的下载按钮均为禁用状态，产物不可下载，无法验证。",
     "redline_issue": "",
     "redline_note": ""
   },
@@ -54,6 +57,6 @@
     "source": "tasks/<TASK_ID>/ark_g1/_discover_download_<N>.png",
     "numbered_name": "<MODEL>_01_download_blocker.png",
     "verify_name": "<MODEL>_verify.png",
-    "reuse_for_all_models": true
+    "reuse_for_unavailable_models": true
   }
 }

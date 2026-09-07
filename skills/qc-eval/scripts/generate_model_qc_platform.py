@@ -26,6 +26,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
 sys.path.insert(0, str(HERE))
+from check_ai_feedback import check_task as check_ai_feedback  # noqa: E402
 from lib.g1 import (  # noqa: E402
     AUDIT_FORM_TEMPLATE,
     DEFAULT_DIRTY_TAG,
@@ -361,6 +362,9 @@ def main() -> int:
     delivery_dir = Path(args.delivery_dir)
     for task_id in args.task_ids:
         qc = load_qc(task_id, tasks_dir)
+        issues = check_ai_feedback(tasks_dir / task_id)
+        if issues:
+            raise ValueError("AI feedback evidence check failed: " + "; ".join(issues))
         model_map = load_model_map(task_id, tasks_dir)
         out_dir = delivery_dir / task_id
         out_dir.mkdir(parents=True, exist_ok=True)

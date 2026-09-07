@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the QC result for a task whose Ark download buttons are all disabled.
+"""Apply the QC template to models whose Ark download buttons are disabled.
 
 Run ``fetch_g1_platform.js discover-download`` first. Without ``--apply`` this
 script only validates the captured page state and prints the changes it would
@@ -81,43 +81,59 @@ def evaluation_scores(ark_dir: Path, run_id, platform: str) -> tuple[object, obj
     return process_score, artifact_score
 
 
-def validate_discovery(discovery: dict, model_map: dict, task_id: str = "") -> list[str]:
+def validate_discovery(
+    discovery: dict, model_map: dict, task_id: str = ""
+) -> tuple[list[str], set[str], set[str]]:
     errors = []
     if task_id and not str(discovery.get("url") or "").rstrip("/").endswith(f"/task/{task_id}"):
         errors.append("discover-download 结果不属于当前任务")
-    if discovery.get("classification") != "artifact_download_unavailable":
-        errors.append("discover-download 未判定为 artifact_download_unavailable")
-    if discovery.get("artifact_download_unavailable") is not True:
-        errors.append("artifact_download_unavailable 不是 true")
-    if discovery.get("all_expected_models_present") is not True:
-        errors.append("下载列表未覆盖全部预期模型")
-    if discovery.get("all_download_buttons_disabled") is not True:
-        errors.append("并非全部预期模型的下载按钮都处于禁用状态")
 
     rows = discovery.get("download_rows") or []
-    row_platforms = {str(row.get("platform") or "").strip() for row in rows}
-    expected = []
-    for model in model_map.get("sheet_columns") or (model_map.get("models") or {}).keys():
+    rows_by_platform = {
+        str(row.get("platform") or "").strip().lower(): row
+        for row in rows
+        if str(row.get("platform") or "").strip()
+    }
+    unavailable: set[str] = set()
+    available: set[str] = set()
+    submitted = []
+    for model in model_names(model_map):
         info = (model_map.get("models") or {}).get(model) or {}
         platform = str(info.get("platform") or "").strip()
         if info.get("missing"):
-            errors.append(f"预期模型 {model} 标记为 missing，不适用全模型下载禁用模板")
+            continue
         if platform:
-            expected.append(platform)
-    if not expected:
+            submitted.append(platform)
+    if not submitted:
         errors.append("model_map 中没有可核对的平台模型")
-    reported_expected = {
-        str(value).strip() for value in discovery.get("expected_platforms") or [] if str(value).strip()
-    }
-    if expected and reported_expected != set(expected):
-        errors.append("discover-download 的预期模型集合与 model_map 不一致")
-    missing = sorted(set(expected) - row_platforms)
-    if missing:
-        errors.append(f"下载列表缺少平台模型：{','.join(missing)}")
-    for row in rows:
-        if str(row.get("platform") or "").strip() in expected and row.get("download_button_disabled") is not True:
-            errors.append(f"模型 {row.get('platform')} 的下载按钮不是禁用状态")
-    return errors
+    for platform in submitted:
+        row = rows_by_platform.get(platform.lower())
+        if not row:
+            errors.append(f"下载列表缺少平台模型：{platform}")
+        elif row.get("download_button_disabled") is True:
+            unavailable.add(platform.lower())
+        elif row.get("download_button_disabled") is False:
+            available.add(platform.lower())
+        else:
+            errors.append(f"模型 {platform} 的下载按钮状态未知")
+
+    if not errors:
+        expected_classification = (
+            "all_artifacts_download_unavailable"
+            if unavailable and not available
+            else "partial_artifact_download_unavailable"
+            if unavailable
+            else "all_artifacts_download_available"
+        )
+        classification = discovery.get("classification")
+        legacy_all_unavailable = (
+            classification == "artifact_download_unavailable" and unavailable and not available
+        )
+        if classification != expected_classification and not legacy_all_unavailable:
+            errors.append(
+                f"discover-download 分类不一致：应为 {expected_classification}，实际为 {classification or '-'}"
+            )
+    return errors, unavailable, available
 
 
 def model_names(model_map: dict) -> list[str]:
@@ -135,18 +151,41 @@ def note_template(template: dict, task_id: str) -> str:
     return choices[int(digest, 16) % len(choices)]
 
 
-def build_plan(task_id: str, qc: dict, model_map: dict, template: dict) -> dict:
+def build_plan(
+    task_id: str,
+    qc: dict,
+    model_map: dict,
+    template: dict,
+    unavailable_platforms: set[str],
+    available_platforms: set[str],
+) -> dict:
     sheet = qc.setdefault("sheet", {})
     template_sheet = template.get("sheet") or {}
-    sheet["artifact_download_unavailable"] = True
-    for key in ("verifiable", "verifiable_reason", "redline_issue", "redline_note"):
-        sheet[key] = template_sheet.get(key, "")
+    unavailable_names = []
+    available_names = []
+    for name in model_names(model_map):
+        info = (model_map.get("models") or {}).get(name) or {}
+        if info.get("missing"):
+            continue
+        platform = str(info.get("platform") or "").strip().lower()
+        if platform in unavailable_platforms:
+            unavailable_names.append(name)
+        elif platform in available_platforms:
+            available_names.append(name)
+
+    all_submitted_unavailable = bool(unavailable_names) and not available_names
+    sheet["artifact_download_unavailable"] = all_submitted_unavailable
+    sheet["artifact_download_unavailable_models"] = unavailable_names
+    sheet["artifact_download_available_models"] = available_names
+    if all_submitted_unavailable:
+        for key in ("verifiable", "verifiable_reason"):
+            sheet[key] = template_sheet.get(key, "")
 
     models = sheet.setdefault("models", {})
     template_model = template.get("model") or {}
     note = note_template(template, task_id)
     applied = []
-    for name in model_names(model_map):
+    for name in unavailable_names:
         info = (model_map.get("models") or {}).get(name) or {}
         process_score, artifact_score = evaluation_scores(
             REPO_ROOT / "tasks" / task_id / "ark_g1",
@@ -173,7 +212,13 @@ def build_plan(task_id: str, qc: dict, model_map: dict, template: dict) -> dict:
             "process_score": process_score,
             "artifact_score": artifact_score,
         })
-    return {"qc": qc, "models": applied}
+    return {
+        "qc": qc,
+        "models": applied,
+        "unavailable_names": unavailable_names,
+        "available_names": available_names,
+        "all_submitted_unavailable": all_submitted_unavailable,
+    }
 
 
 def install_evidence(task_id: str, names: list[str], source: Path) -> tuple[list[str], str]:
@@ -223,14 +268,27 @@ def main() -> int:
     discovery = load_json(discovery_path)
     qc = load_json(qc_path)
     model_map = load_json(map_path)
-    errors = validate_discovery(discovery, model_map, task_id)
+    errors, unavailable_platforms, available_platforms = validate_discovery(
+        discovery, model_map, task_id
+    )
     if errors:
         raise SystemExit("不满足产物不可下载模板条件：\n- " + "\n- ".join(errors))
+    if not unavailable_platforms:
+        print(f"[OK] {task_id}: 所有已提交模型的下载按钮均可用；不应用产物不可下载模板")
+        return 0
     source = resolve_evidence_screenshot(discovery, ark_dir)
-    plan = build_plan(task_id, qc, model_map, template)
+    plan = build_plan(
+        task_id,
+        qc,
+        model_map,
+        template,
+        unavailable_platforms,
+        available_platforms,
+    )
 
     if not args.apply:
-        print(f"[OK] {task_id}: 全部预期模型下载按钮均禁用")
+        scope = "全部已提交模型" if plan["all_submitted_unavailable"] else "部分模型"
+        print(f"[OK] {task_id}: {scope}下载按钮禁用")
         print(f"[dry-run] evidence={source.relative_to(REPO_ROOT)}")
         for item in plan["models"]:
             print(
@@ -241,7 +299,7 @@ def main() -> int:
         return 0
 
     atomic_write_json(qc_path, plan["qc"])
-    screenshots, backup = install_evidence(task_id, model_names(model_map), source)
+    screenshots, backup = install_evidence(task_id, plan["unavailable_names"], source)
     result = {
         "task_id": task_id,
         "scenario": template["scenario"],
@@ -251,6 +309,9 @@ def main() -> int:
         "screenshots": screenshots,
         "backup": backup,
         "models": plan["models"],
+        "unavailable_models": plan["unavailable_names"],
+        "available_models": plan["available_names"],
+        "all_submitted_unavailable": plan["all_submitted_unavailable"],
         "applied_at": datetime.now().isoformat(timespec="seconds"),
     }
     result_path = task_dir / "artifact_download_unavailable_apply.json"

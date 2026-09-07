@@ -36,12 +36,29 @@ EXIT_MISMATCH = 10
 EXIT_USAGE = 2
 
 
-def write_summary(task_id: str, models: list[dict]) -> Path:
+def filter_downloadable_models(task_id: str, models: list[dict]) -> tuple[list[dict], list[str]]:
+    """Skip annotation checks for models whose artifact button is disabled."""
+    path = REPO_ROOT / "tasks" / str(task_id) / "model_map.json"
+    try:
+        model_map = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return models, []
+    unavailable = {
+        str(sheet)
+        for sheet, info in (model_map.get("models") or {}).items()
+        if (info or {}).get("artifact_download_unavailable")
+        or (info or {}).get("artifact_download_state") == "unavailable"
+    }
+    return [row for row in models if str(row.get("sheet") or "") not in unavailable], sorted(unavailable)
+
+
+def write_summary(task_id: str, models: list[dict], skipped: list[str] | None = None) -> Path:
     """Write tasks/<TASK_ID>/annotator_tags.json for later QC steps."""
     path = REPO_ROOT / "tasks" / str(task_id) / "annotator_tags.json"
     payload = {
         "task_id": str(task_id),
         "models": models,
+        "skipped_artifact_download_unavailable": skipped or [],
         "mismatch_count": sum(1 for row in models if row.get("mismatches")),
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -90,10 +107,14 @@ def main() -> int:
     worst = EXIT_CLEAN
     for task_id in args.task_ids:
         models = iter_model_evaluations(task_id)
+        models, skipped = filter_downloadable_models(task_id, models)
+        if skipped:
+            print(f"  [skip] {task_id}: 产物不可下载模型不检查标注标签：{','.join(skipped)}")
         if not models:
-            print(f"  [skip] {task_id}: no evaluation.json")
+            print(f"  [skip] {task_id}: no downloadable model evaluation.json")
+            write_summary(task_id, models, skipped)
             continue
-        summary = write_summary(task_id, models)
+        summary = write_summary(task_id, models, skipped)
         mismatched = [row for row in models if row.get("mismatches")]
         if mismatched:
             print(f"  [mismatch] {task_id}  ({len(mismatched)} model(s))")
@@ -104,7 +125,7 @@ def main() -> int:
             worst = EXIT_MISMATCH
         else:
             print(f"  [OK]  {task_id}  no tag/remark contradictions")
-            write_summary(task_id, models)
+            write_summary(task_id, models, skipped)
     return worst
 
 

@@ -18,6 +18,7 @@
 
 const { chromium } = require('playwright');
 const fs = require('fs');
+const { spawnSync } = require('child_process');
 const path = require('path');
 const { atomicWriteJSON } = require('./lib/concurrency');
 
@@ -604,6 +605,14 @@ async function main() {
   csrfFromState(statePath);
 
   const { fillPath, payload } = loadFillPayload(taskId);
+  const evidenceCheck = spawnSync(
+    process.env.QC_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
+    [path.join(HERE, 'check_ai_feedback.py'), String(taskId), '--fill-file', fillPath],
+    { cwd: REPO_ROOT, encoding: 'utf8' },
+  );
+  if (evidenceCheck.error || evidenceCheck.status !== 0) {
+    throw new Error(`AI feedback evidence check failed: ${evidenceCheck.error || evidenceCheck.stdout || evidenceCheck.stderr}`);
+  }
   const fields = loadTemplateOptions();
   const matchedRows = (payload.models || []).filter((row) => modelMatches(row, opts.only));
   if (!matchedRows.length) {

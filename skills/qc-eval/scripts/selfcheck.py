@@ -35,6 +35,7 @@ from lib.writing_style import (  # noqa: E402
     scan_feedback_rating_rationale,
 )
 from check_prompt_cheat import build_notes  # noqa: E402
+from check_ai_feedback import check_task as check_ai_feedback, has_ai_tag, workbook_labels  # noqa: E402
 from lib.g1 import (  # noqa: E402
     FEISHU_DIRTY_TAG_OPTIONS,
     MISSING_MODEL_RATING,
@@ -508,9 +509,18 @@ def redline_header_col(headers: dict[str, int]) -> int | None:
     return headers.get(_G1_REDLINE_HEADER) or headers.get(_REDLINE_HEADER)
 
 
-def is_artifact_download_unavailable_case(qc: dict | None) -> bool:
+def artifact_download_unavailable_models(qc: dict | None) -> set[str]:
     sheet = ((qc or {}).get("sheet") or {})
-    return sheet.get("artifact_download_unavailable") is True
+    configured = sheet.get("artifact_download_unavailable_models")
+    if isinstance(configured, list):
+        return {str(value).strip() for value in configured if str(value).strip()}
+    if sheet.get("artifact_download_unavailable") is True:
+        return {str(value).strip() for value in (sheet.get("models") or {}) if str(value).strip()}
+    return set()
+
+
+def is_artifact_download_unavailable_case(qc: dict | None) -> bool:
+    return bool(artifact_download_unavailable_models(qc))
 
 
 def redline_consistency_issues(
@@ -531,20 +541,26 @@ def redline_consistency_issues(
     task_rating_redline = is_redline_rating(ws, headers.get(_TASK_RATING_HEADER))
     task_can_carry_redline = can_carry_task_redline(ws, headers.get(_TASK_RATING_HEADER))
     task_note = cell_text(ws, headers.get("题目质量说明"))
+    unavailable_models = artifact_download_unavailable_models(qc)
     redline_model_notes = [
         cell_text(ws, note_col)
-        for _model, rating_col, note_col in model_rating_note_cols(headers)
-        if can_carry_feedback_redline(ws, rating_col)
+        for model, rating_col, note_col in model_rating_note_cols(headers)
+        if model not in unavailable_models and can_carry_feedback_redline(ws, rating_col)
     ]
-    # Historical task 6699 establishes a non-redline exception: when every
-    # model artifact download is disabled, feedback is unqualified because it
-    # cannot be verified, while the dirty-data tag is "其他" and redline stays
-    # empty. A dedicated guard below validates that exception in full.
-    has_model_redline = bool(redline_model_notes) and not is_artifact_download_unavailable_case(qc)
+    # Download-unavailable models use a non-redline template. Downloadable
+    # models in the same task retain the normal feedback-redline checks.
+    has_model_redline = bool(redline_model_notes)
     has_redline_rating = task_rating_redline or has_model_redline
 
     issues: list[str] = []
-    if has_redline_rating and not selected:
+    ai_feedback_only = has_model_redline and not task_rating_redline and all(
+        has_ai_tag(cell_text(ws, headers.get(f"{model}脏数据标签")))
+        for model, rating_col, _ in model_rating_note_cols(headers)
+        if can_carry_feedback_redline(ws, rating_col)
+    )
+    # AI feedback has its own evidence guard and dropdown. Do not force it
+    # into unrelated legacy categories such as fabricated feedback.
+    if has_redline_rating and not selected and not ai_feedback_only:
         issues.append("redline-rating-missing-红线问题")
     if selected:
         invalid = [raw for raw, canon in zip(raw_options, canonical_options) if not canon]
@@ -598,8 +614,9 @@ def artifact_download_unavailable_issues(
     qc: dict | None,
     task_id: str,
 ) -> dict[int, list[str]]:
-    """Validate the explicit all-download-buttons-disabled exception."""
-    if not is_artifact_download_unavailable_case(qc):
+    """Validate the per-model download-unavailable exception."""
+    unavailable_models = artifact_download_unavailable_models(qc)
+    if not unavailable_models:
         return {}
     bad: dict[int, list[str]] = {}
 
@@ -610,16 +627,32 @@ def artifact_download_unavailable_issues(
     verifiable_col = headers.get("题目是否可验证") or headers.get("题目是否可验")
     reason_col = headers.get("不可验证原因")
     redline_col = redline_header_col(headers)
-    if cell_text(ws, verifiable_col) != "否":
-        add(verifiable_col, "download-unavailable-verifiable-must-be-否")
-    reason = cell_text(ws, reason_col)
-    if "产物不可下载" not in reason or "无法验证" not in reason:
-        add(reason_col, "download-unavailable-reason-must-name-artifact-and-verification")
-    if cell_text(ws, redline_col):
-        add(redline_col, "download-unavailable-redline-must-be-empty")
+    model_map_path = REPO_ROOT / "tasks" / task_id / "model_map.json"
+    try:
+        model_map = json.loads(model_map_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        model_map = {}
+        add(reason_col, "download-unavailable-model-map-missing-or-invalid")
+    map_models = model_map.get("models") or {}
+    submitted_models = {
+        str(model).strip()
+        for model, info in map_models.items()
+        if not (info or {}).get("missing")
+    }
+    all_submitted_unavailable = bool(submitted_models) and submitted_models <= unavailable_models
+    if all_submitted_unavailable:
+        if cell_text(ws, verifiable_col) != "否":
+            add(verifiable_col, "download-unavailable-verifiable-must-be-否")
+        reason = cell_text(ws, reason_col)
+        if "产物不可下载" not in reason or "无法验证" not in reason:
+            add(reason_col, "download-unavailable-reason-must-name-artifact-and-verification")
+        if cell_text(ws, redline_col) and not is_redline_rating(ws, headers.get(_TASK_RATING_HEADER)):
+            add(redline_col, "download-unavailable-feedback-redline-must-be-empty")
 
     qc_models = (((qc or {}).get("sheet") or {}).get("models") or {})
     for model, rating_col, note_col in model_rating_note_cols(headers):
+        if model not in unavailable_models:
+            continue
         dirty_col = headers.get(f"{model}脏数据标签")
         dirty_reason_col = headers.get(f"{model}脏数据标签理由")
         if cell_text(ws, rating_col) != "不合格":
@@ -648,13 +681,136 @@ def artifact_download_unavailable_issues(
     except (OSError, ValueError):
         add(reason_col, "download-unavailable-discovery-missing-or-invalid")
     else:
-        if discovery.get("classification") != "artifact_download_unavailable":
+        allowed_classifications = {
+            "all_artifacts_download_unavailable",
+            "partial_artifact_download_unavailable",
+            "artifact_download_unavailable",
+        }
+        if discovery.get("classification") not in allowed_classifications:
             add(reason_col, "download-unavailable-discovery-classification-invalid")
-        if discovery.get("all_expected_models_present") is not True:
-            add(reason_col, "download-unavailable-discovery-models-incomplete")
-        if discovery.get("all_download_buttons_disabled") is not True:
-            add(reason_col, "download-unavailable-discovery-buttons-not-all-disabled")
+        rows_by_platform = {
+            str(row.get("platform") or "").strip().lower(): row
+            for row in discovery.get("download_rows") or []
+        }
+        for model in unavailable_models:
+            info = map_models.get(model) or {}
+            platform = str(info.get("platform") or "").strip().lower()
+            row = rows_by_platform.get(platform)
+            if not platform or not row:
+                add(reason_col, f"download-unavailable-discovery-row-missing:{model}")
+            elif row.get("download_button_disabled") is not True:
+                add(reason_col, f"download-unavailable-button-not-disabled:{model}")
+        configured_available = {
+            str(value).strip()
+            for value in (((qc or {}).get("sheet") or {}).get("artifact_download_available_models") or [])
+            if str(value).strip()
+        }
+        for model in configured_available:
+            info = map_models.get(model) or {}
+            platform = str(info.get("platform") or "").strip().lower()
+            row = rows_by_platform.get(platform)
+            if not platform or not row:
+                add(reason_col, f"download-available-discovery-row-missing:{model}")
+            elif row.get("download_button_disabled") is not False:
+                add(reason_col, f"download-available-button-not-enabled:{model}")
     return bad
+
+
+def download_availability_gate_issues(
+    headers: dict[str, int], qc: dict | None, task_id: str
+) -> dict[int, list[str]]:
+    """Require a classified download button for every submitted model."""
+    anchor = (
+        headers.get("不可验证原因")
+        or redline_header_col(headers)
+        or next((rating for _, rating, _ in model_rating_note_cols(headers)), None)
+    )
+    if not anchor or not task_id:
+        return {}
+    issues: list[str] = []
+    task_dir = REPO_ROOT / "tasks" / task_id
+    try:
+        model_map = json.loads((task_dir / "model_map.json").read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {anchor: ["download-gate-model-map-missing-or-invalid"]}
+    try:
+        discovery = json.loads(
+            (task_dir / "ark_g1" / "download_list_discover.json").read_text(
+                encoding="utf-8-sig"
+            )
+        )
+    except (OSError, ValueError):
+        return {anchor: ["download-gate-discovery-missing-or-invalid"]}
+    if not str(discovery.get("url") or "").rstrip("/").endswith(f"/task/{task_id}"):
+        issues.append("download-gate-discovery-task-mismatch")
+
+    rows_by_platform = {
+        str(row.get("platform") or "").strip().lower(): row
+        for row in discovery.get("download_rows") or []
+        if str(row.get("platform") or "").strip()
+    }
+    actual_unavailable: set[str] = set()
+    actual_available: set[str] = set()
+    for model, info in (model_map.get("models") or {}).items():
+        if (info or {}).get("missing"):
+            continue
+        platform = str((info or {}).get("platform") or "").strip().lower()
+        row = rows_by_platform.get(platform)
+        if not platform or not row:
+            issues.append(f"download-gate-row-missing:{model}")
+            continue
+        disabled = row.get("download_button_disabled")
+        if disabled is True:
+            actual_unavailable.add(str(model))
+        elif disabled is False:
+            actual_available.add(str(model))
+        else:
+            issues.append(f"download-gate-button-state-unknown:{model}")
+        recorded = (info or {}).get("artifact_download_state")
+        expected_recorded = "unavailable" if disabled is True else "available" if disabled is False else None
+        if recorded is not None and expected_recorded and recorded != expected_recorded:
+            issues.append(f"download-gate-model-map-state-mismatch:{model}")
+
+    configured_unavailable = artifact_download_unavailable_models(qc)
+    if actual_unavailable != configured_unavailable:
+        issues.append(
+            "download-gate-unavailable-models-mismatch:"
+            f"expected={','.join(sorted(actual_unavailable)) or '-'};"
+            f"qc={','.join(sorted(configured_unavailable)) or '-'}"
+        )
+    configured_available_raw = ((qc or {}).get("sheet") or {}).get(
+        "artifact_download_available_models"
+    )
+    if isinstance(configured_available_raw, list):
+        configured_available = {
+            str(value).strip() for value in configured_available_raw if str(value).strip()
+        }
+        if actual_available != configured_available:
+            issues.append(
+                "download-gate-available-models-mismatch:"
+                f"expected={','.join(sorted(actual_available)) or '-'};"
+                f"qc={','.join(sorted(configured_available)) or '-'}"
+            )
+
+    if not issues:
+        expected_classification = (
+            "all_artifacts_download_unavailable"
+            if actual_unavailable and not actual_available
+            else "partial_artifact_download_unavailable"
+            if actual_unavailable
+            else "all_artifacts_download_available"
+        )
+        classification = discovery.get("classification")
+        legacy_all_unavailable = (
+            classification == "artifact_download_unavailable"
+            and actual_unavailable
+            and not actual_available
+        )
+        if classification != expected_classification and not legacy_all_unavailable:
+            issues.append(
+                f"download-gate-classification-mismatch:{classification or '-'}"
+            )
+    return {anchor: issues} if issues else {}
 
 
 def machine_qc_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]:
@@ -852,6 +1008,7 @@ def annotator_environment_attribution_issues(
     rows = iter_model_evaluations(task_id)
     if not rows:
         return {}
+    unavailable_models = artifact_download_unavailable_models(qc)
     qc_models = ((qc or {}).get("sheet") or {}).get("models") or {}
     combined = cell_text(ws, headers.get(_PLATFORM_AUDIT_HEADER))
     note_cols = {model: note_col for model, _, note_col in model_rating_note_cols(headers)}
@@ -859,6 +1016,8 @@ def annotator_environment_attribution_issues(
 
     for row in rows:
         sheet = str(row.get("sheet") or "")
+        if sheet in unavailable_models:
+            continue
         annotator_text = " ".join(
             str(part or "")
             for dim in row.get("dimensions") or []
@@ -905,6 +1064,7 @@ def annotator_tag_qc_issues(
     models = iter_model_evaluations(task_id)
     if not models:
         return {}
+    unavailable_models = artifact_download_unavailable_models(qc)
     qc_models = ((qc or {}).get("sheet") or {}).get("models") or {}
     combined = cell_text(ws, headers.get(_PLATFORM_AUDIT_HEADER))
     bad: dict[int, list[str]] = {}
@@ -912,6 +1072,8 @@ def annotator_tag_qc_issues(
     note_cols = {model: note_col for model, _, note_col in model_rating_note_cols(headers)}
     for row in models:
         sheet = str(row.get("sheet") or "")
+        if sheet in unavailable_models:
+            continue
         rating_col = rating_cols.get(sheet)
         note_col = note_cols.get(sheet)
         rating = cell_text(ws, rating_col) if rating_col else ""
@@ -1068,7 +1230,12 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
         bad.setdefault(col, []).extend(issues)
     for col, issues in g1_dirty_tag_issues(ws, headers, period).items():
         bad.setdefault(col, []).extend(issues)
+    if period in _CURRENT_PERIODS and qc:
+        for issue in check_ai_feedback(REPO_ROOT / "tasks" / task_id, workbook_labels(ws)):
+            bad.setdefault(headers.get(_PLATFORM_AUDIT_HEADER, 1), []).append(issue)
     for col, issues in machine_qc_issues(ws, headers).items():
+        bad.setdefault(col, []).extend(issues)
+    for col, issues in download_availability_gate_issues(headers, qc, task_id).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in artifact_download_unavailable_issues(
         ws, headers, qc, task_id

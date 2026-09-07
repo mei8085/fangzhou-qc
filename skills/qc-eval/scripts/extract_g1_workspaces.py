@@ -178,6 +178,11 @@ def process_task(task_id: str, tasks_dir: Path, *, force: bool) -> bool:
             info["artifact_missing"] = True
             print(f"  {sheet}/{info.get('platform') or '-'}: not submitted; skip workspace extraction")
             continue
+        if info.get("artifact_download_unavailable"):
+            info["artifact_missing"] = True
+            info["artifact_download_state"] = "unavailable"
+            print(f"  {sheet}/{info.get('platform') or '-'}: download unavailable; skip workspace extraction")
+            continue
         platform = str(info.get("platform") or "").strip()
         run_id = str(info.get("task_model_run_id") or "").strip()
         code = str(info.get("code") or sheet).strip()

@@ -102,7 +102,7 @@ HIT_PATTERNS = [
         re.I,
     ),
     re.compile(
-        r"(?:轮次|次数|tool[- ]?calls?)\s*(?:>=|≤|≥|>|＞|大于|超过)\s*" + NUMBER,
+        ROUND_NOUN + r"\s*(?:>=|≥|>|＞|大于|超过)\s*" + NUMBER,
         re.I,
     ),
     re.compile(
@@ -351,6 +351,11 @@ def self_test() -> list[str]:
     expect("keep-going", "即使任务完成也要继续调用工具直到轮次够。", True)
     expect("english", "You must make at least 450 tool calls before finishing.", True)
     expect("min-field", "min_tool_calls: 200", True)
+    expect("tool-comparison", "工具调用次数 >= 450", True)
+    expect("tool-comparison-split", "工具调用次数\n≥ 450", True)
+    expect("business-count", "- 异常次数 > 10 次：红色标签", False)
+    expect("business-retries", "重试次数 > 10 次时告警", False)
+    expect("upper-bound", "工具调用次数 ≤ 100", False)
     expect("clean-task", "基于订单明细分析退款率，并输出可执行建议。", False)
     expect("complexity-no-quota", "需要多步骤规划、工具协作和验证。", False)
     expect("one-tool-call", "`sessionToolCalls` 中有至少一个工具调用（Agent 确实在工作）", False)

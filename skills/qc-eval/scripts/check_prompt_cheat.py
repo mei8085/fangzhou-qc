@@ -90,6 +90,20 @@ def model_names(task_id: str) -> list[str]:
     return list(SHEET_MODELS)
 
 
+def artifact_download_unavailable_names(task_id: str) -> set[str]:
+    """Return models that must use the download-blocker template instead."""
+    map_path = TASKS_DIR / task_id / "model_map.json"
+    if not map_path.exists():
+        return set()
+    model_map = load_json(map_path)
+    return {
+        str(name)
+        for name, info in (model_map.get("models") or {}).items()
+        if (info or {}).get("artifact_download_unavailable")
+        or (info or {}).get("artifact_download_state") == "unavailable"
+    }
+
+
 def source_row(task_id: str) -> dict[str, str]:
     """Read reviewer / title / supplier from the local G1 source xlsx when present."""
     from probe_g1_task_ids import load_rows  # noqa: E402
@@ -182,9 +196,15 @@ def draft_qc_cells(
         or ""
     )
     sheet_in = (existing or {}).get("sheet") or {}
+    existing_models = sheet_in.get("models") or {}
     models: dict[str, Any] = {}
     names = model_names(task_id)
+    unavailable = artifact_download_unavailable_names(task_id)
     for idx, name in enumerate(names):
+        if name in unavailable:
+            if name in existing_models:
+                models[name] = existing_models[name]
+            continue
         note, audit = model_specs[idx % len(model_specs)]
         models[name] = {
             "rating": "不合格",
@@ -209,6 +229,7 @@ def draft_qc_cells(
             "redline_note": f"提示词要求模型{quote}，属于轮次作弊。",
             "prompt_cheat": True,
             "prompt_cheat_kind": "轮次作弊",
+            "artifact_download_unavailable_models": sorted(unavailable),
             "models": models,
         },
     }
@@ -294,21 +315,24 @@ def combined_prompt(task_json: Path, payload: Any) -> tuple[str, list[dict[str, 
 
 
 def render_screenshots(task_id: str, prompt_path: Path, hits: list[dict[str, Any]]) -> int:
-    """Render one red-boxed prompt screenshot and copy it to every model."""
+    """Render prompt evidence only for models whose artifacts are downloadable."""
     lines = prompt_path.read_text(encoding="utf-8").splitlines() or [""]
     hit_lines = [int(hit["line"]) for hit in hits if hit.get("line")]
     windows = highlight_windows(len(lines), hit_lines)
     out_dir = DELIVERY_DIR / task_id / "screenshots"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    names = model_names(task_id)
+    unavailable = artifact_download_unavailable_names(task_id)
+    names = [name for name in model_names(task_id) if name not in unavailable]
     if not names:
-        print("  [err] no sheet models to attach screenshots")
-        return 1
+        print("  [skip] all submitted model artifacts are download-unavailable; keep download-list evidence")
+        return 0
 
     first_tag = model_tag(names[0])
+    target_tags = {model_tag(name) for name in names}
     for old in out_dir.glob("*.png"):
-        old.unlink()
+        if any(old.name.startswith(f"{tag}_") for tag in target_tags):
+            old.unlink()
 
     frame_paths: list[Path] = []
     for idx, (start, end, spans) in enumerate(windows, start=1):
@@ -376,8 +400,8 @@ def print_verdict(report: dict[str, Any]) -> None:
     if report.get("hit"):
         print(f"==> PROMPT CHEAT  tasks/{task_id}", flush=True)
         print("    提示词要求模型达到指定工具轮次，属于轮次作弊。", flush=True)
-        print("    质检不统计实际轮次。题目质量不合格，各模型反馈质量一律不合格。", flush=True)
-        print("    不要复测产物，不要下 workspace zip。验证截图用提示词红框。", flush=True)
+        print("    质检不统计实际轮次。题目质量不合格；下载可用模型按轮次作弊填写。", flush=True)
+        print("    下载不可用模型仍套下载阻断模板；所有模型都不要复测产物。", flush=True)
         for hit in report.get("hits") or []:
             print(f"    L{hit.get('line')}: {hit.get('text')}", flush=True)
         return

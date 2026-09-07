@@ -114,10 +114,11 @@ async function main() {
 
   // routes
   for (const r of routesCfg.routes ?? []) {
-    const target = base + r.path;
+    const target = r.path == null ? null : base + r.path;
     const outPath = path.join(outDir, `${codeTag}_verify_${r.name}.png`);
     try {
-      await page.goto(target, { waitUntil: 'domcontentloaded' });
+      if (target !== null) await page.goto(target, { waitUntil: 'domcontentloaded' });
+      for (const step of r.steps ?? []) await runStep(page, step);
       if (r.wait_for) await waitFor(page, r.wait_for);
       if (r.wait_ms) await page.waitForTimeout(r.wait_ms);
       await page.screenshot({ path: outPath, fullPage: false });

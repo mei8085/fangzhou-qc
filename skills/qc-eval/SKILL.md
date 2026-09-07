@@ -120,7 +120,7 @@ description: 44期方舟 coding 众测质检工作流。质检题目从本地 do
 
 44期飞书列“反馈质量（作业质量）”下拉只有 `高质量`、`合格`、`不合格` 三个选项，禁止写 `红线`。若模型反馈触发反馈质量红线或脏数据标签，该模型“反馈质量（作业质量）”填 `不合格`；题目红线写到“红线问题”；逐模型飞书“脏数据标签”必须写成下拉原文，例如 `用户问题:敷衍恶意打分`。非脏数据时该列留空，不要填 `非脏数据`。
 
-特殊例外：任务详情「下载列表」覆盖全部预期模型且所有下载按钮禁用时，按“产物不可下载”处理。逐模型反馈质量填 `不合格`、脏数据标签填 `其他`，但这不是反馈红线，“红线问题”留空；必须由下文按钮禁用闸门的机器可读结果和页面截图佐证。
+特殊例外：每个已提交模型都必须先检查任务详情「下载列表」里的下载按钮。某模型按钮禁用时，该模型按“产物不可下载”处理：反馈质量填 `不合格`、脏数据标签填 `其他`，但这不是反馈红线；必须由下文按钮禁用闸门的机器可读结果和页面截图佐证。部分模型不可下载时，只给这些模型套模板，其余可下载模型仍按正常规则质检。
 
 红线仍需明确证据。截图中明确可见的出题质量红线补充包括：从 Openbenchmark 上找题、用网页生成 PPT 或旅游攻略等静态展示性页面。提示词轮次作弊也按出题质量红线处理，见「提示词轮次作弊闸门」。
 
@@ -154,10 +154,18 @@ description: 44期方舟 coding 众测质检工作流。质检题目从本地 do
 - `API 请求超时 / 轨迹大量 error`：`status_code != 200` 且用户理由提卡、超时、掉线或请求失败，且效率维度低分；或结构化字段 `ttft / tpot / input_tokens / output_tokens` 为 `null`。`status_code = 200` 的红色非流式输出不算异常；不把 message 文本或 tool result 当 API 异常证据。
 - `OpenClaw / Hermes 框架问题`：trace 有完整交付但用户前端没收到，或用户连续多条 user message 无对应 assistant 回复与工具调用；必须同时有用户侧证据和轨迹侧证据。模型自身死循环或工具调用失败后无法恢复属于模型能力问题，不打此标签。
 - `用户切换模型错误`：模型自称身份与接入点不一致，且前段轨迹与其他模型雷同，能指向未清 workspace 或未 `/new` 的模型切换污染。
-- `AI 打分 / AI 评价`：反馈有 AI 打分口癖，或轨迹含模型自评、prompt 内置打分指令、产物里有 AI 打分文件。
+- `AI 打分 / AI 评价`：仅当明确证据表明标注人员使用 AI 生成提交的评分或评价时判定。任务要求测试模型自评、自测、逐项验收或生成执行报告均不触发；图标、百分制、Markdown 或转述模型原话也不能单独作为依据。
 - `敷衍恶意打分`：打分理由为空或极短、标准前后不一、不同板块结论相悖、非关联维度连带扣分、评分与实际产物明显不符；L2 还包括多模型理由高度雷同、未测完全部模型就提交、各模型分数一致但实际差异明显。
 - `题目红线（prompt 简单 / VLM 错配）`：prompt 过于简单或模糊、纯题库题、VLM 错配、纯生图任务、全部模型工具调用轮次 < 10、同任务给各模型 prompt 不一致；补充红线包括毫无意义题目、非代码题、题目不合理、非本人场景、静态展示性页面、**提示词轮次作弊**。
-- `低质量任务`：飞书下拉选项是 `用户问题:低质量任务`。提示词轮次作弊时各模型打此标签。内部可用页面上的执行过程分、产物质量分判断是否整体偏高且分差很小；交付备注不要另写「综合评分 / 均分 / 总分」，页面评测打分没有这些聚合字段。
+- `低质量任务`：飞书下拉选项是 `用户问题:低质量任务`。提示词轮次作弊时，下载可用模型打此标签；下载不可用模型仍打 `其他`。内部可用页面上的执行过程分、产物质量分判断是否整体偏高且分差很小；交付备注不要另写「综合评分 / 均分 / 总分」，页面评测打分没有这些聚合字段。
+
+### AI 评价证据归属
+
+选择 `用户问题:AI打分/AI评价` 前，必须区分测试模型的任务产物与标注人员提交的评价。不得把前者中的自评内容当成后者使用 AI 的证据；有评分 rubric、验收对照或自测报告时仍按正常流程复测。7979 的模型自评与测试要求就是不触发此红线的反例。仅有风格疑点时不打此标签，也不改套“虚假反馈”等其他红线。
+
+确有标注侧证据时，在对应 `sheet.models.<模型>` 中填写 `ai_feedback_evidence`：`source` 固定为 `annotator_feedback`，`quote` 为该模型平台评测备注或产出物反馈中的原文，`reason` 说明该原文如何证明**标注人员**使用 AI 评分或评价，而非转述测试模型内容。字段结构为 `{"source":"annotator_feedback","quote":"标注反馈的真实原文","reason":"标注人员使用 AI 评价的具体依据"}`。脚本只检查来源和引用能否核对，归因仍须人工判断；不得为了通过校验编造引用或把任务自评改称标注自评。
+
+`python3 skills/qc-eval/scripts/check_ai_feedback.py <任务ID>` 检查该证据；自检、平台填写文件生成、飞书写入和平台草稿入口均执行此校验。检查失败时回到证据核对，不自动改档或改选红线。非 AI 评价记录无需填写该字段。
 
 ## 标准流程
 
@@ -178,14 +186,15 @@ node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome
 node skills/qc-eval/scripts/fetch_g1_platform.js auth-login
 ```
 
-4. 采集 Ark 平台材料。按任务ID搜索 project 326，进入任务详情。必须按以下顺序执行：拉取任务详情与页面提示词；下载首轮 Prompt 下的全部「上传产物」；安全扫描上传文件及压缩包内的 Markdown/文本；把这些文本与页面提示词一起过「提示词轮次作弊闸门」；未作弊时再采集平台上实际存在的预期模型运行、评测、下载列表、Workspace 与轨迹。
+4. **先执行模型产物下载可用性闸门，再采集 Ark 平台材料。** 这是每题、每个已提交模型的强制前置步骤，不能等到看完轨迹或启动产物后再补查。
 
 ```bash
+node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id <任务ID>
 node skills/qc-eval/scripts/fetch_g1_platform.js collect --task-id <任务ID>
 python3 skills/qc-eval/scripts/extract_g1_workspaces.py <任务ID>
 ```
 
-脚本默认 `--project 326`，本地目录与平台搜索都用同一个任务ID。输出目录为 `tasks/<任务ID>/ark_g1/`，并写 `tasks/<任务ID>/model_map.json`。
+`discover-download` 先截图并记录每个模型的按钮状态；`collect` 没有同任务的有效检查结果会拒绝继续。随后按任务ID搜索 project 326，拉取任务详情与页面提示词，下载并扫描首轮 Prompt 下的全部「上传产物」，把上传文本与页面提示词一起过「提示词轮次作弊闸门」。对下载按钮禁用的模型，采集只保留运行映射和填写模板所需的执行过程分、产物质量分，跳过评测附件、审核记录、Workspace Browser、轨迹、逐模型下载列表和 Workspace ZIP；对按钮可用的模型正常采集并质检。脚本默认 `--project 326`，本地目录与平台搜索都用同一个任务ID。输出目录为 `tasks/<任务ID>/ark_g1/`，并写 `tasks/<任务ID>/model_map.json`。
 
 首轮「上传产物」固定输出如下，和各模型目录内的 `workspace/`、`download_list.json` 分开：
 
@@ -197,9 +206,9 @@ python3 skills/qc-eval/scripts/extract_g1_workspaces.py <任务ID>
 
 即使模型「下载列表」为 0，也必须单独检查上述首轮上传清单。上传产物里的 `.md` / `.txt` 等文本可能才是用户的真实提示词或补充要求，必须在看模型产物前阅读；压缩包会受路径、体积、文件数和嵌套深度限制递归扫描。页面/API 报告有上传文件但下载失败、校验不一致、文本无法解码、压缩包超限或存在未能检查的嵌套包时，采集脚本必须停住，人工核对后再继续，不得把它当作「无上传产物」。二进制文件会保留并在检查报告标记 `manual_review_required`，质检时需按文件类型人工查看。
 
-采集成功后必须运行 `extract_g1_workspaces.py`。脚本只解压 Workspace 中模型实际工作区，跳过 `.autocase` 输入缓存，并把复测入口写回 `model_map.json`；后续截图脚本依赖该 `entry`。已有解压目录时默认不覆盖，确需重建才显式加 `--force`。
+采集成功后必须运行 `extract_g1_workspaces.py`。脚本只解压下载可用模型的 Workspace，自动跳过未作答和下载不可用模型，跳过 `.autocase` 输入缓存，并把可复测入口写回 `model_map.json`；后续截图脚本依赖该 `entry`。已有解压目录时默认不覆盖，确需重建才显式加 `--force`。
 
-采集在拿到 `task.json` 并完整下载、检查首轮「上传产物」之后，才会跑 `check_prompt_cheat.py --scan-only`。检查范围是页面提示词加上传产物中的 Markdown/文本。命中轮次作弊时**不再下载 workspace zip / 轨迹 / 下载列表**，也不要再去复测产物。
+采集在拿到 `task.json` 并完整下载、检查首轮「上传产物」之后，才会跑 `check_prompt_cheat.py --scan-only`。检查范围是页面提示词加上传产物中的 Markdown/文本。命中轮次作弊时**不再下载 workspace zip / 轨迹 / 逐模型下载列表**，也不要再去复测产物；前置的任务详情下载按钮截图仍保留。
 
 若平台 codeName 出现未配置的额外模型，脚本必须停住。缺少 `harpoon,gazelle,finch,elixir` 中的预期模型时，脚本按 `allow_missing_models` 配置继续，在 `model_map.json` 留下明确缺失记录，并用 `render_missing_model_evidence.py` 生成缺失证据。采集过程中若「下载列表」API 不一致，先停下来与人工核对，不要自行发明下载方式。
 
@@ -212,26 +221,30 @@ python3 skills/qc-eval/scripts/check_prompt_cheat.py <任务ID>
 - 质检**不数**轨迹工具轮次。甲方会自行分析轨迹。
 - 只核对提示词有没有要求模型把轮次/工具调用次数做到某个数量，例如「工具轮次达到 450」「至少调用工具 100 次」「不够就刷轮次」。
 - **未命中**：继续下一步人工质检和产物复测。
-- **命中**：题目质量填 `不合格`；`红线问题` 填 `题目不合理`；四个配置模型反馈质量一律 `不合格`；脏数据标签填 `用户问题:低质量任务`；验证截图全部用提示词截图，红色框选作弊语句。不要再起 dev server、不要再打开各模型产物。
+- **命中**：题目质量填 `不合格`；`红线问题` 填 `题目不合理`。下载按钮可用模型的反馈质量填 `不合格`、脏数据标签填 `用户问题:低质量任务`，验证截图使用提示词红框图；下载按钮禁用模型仍按产物不可下载模板填写并使用下载列表截图。不要再起 dev server、不要再打开各模型产物。
 
 ```bash
 python3 skills/qc-eval/scripts/check_prompt_cheat.py <任务ID> --apply
 ```
 
-`--apply` 会写好 `qc_cells.json` 草稿并生成 `delivery/<任务ID>/screenshots/<模型>_01_prompt_cheat.png`。然后直接进入交付（`push_xlsx.py` / `generate_model_qc_platform.py` / `selfcheck.py`），跳过「复测启动与截图」。
+`--apply` 会为下载可用模型写好 `qc_cells.json` 草稿并生成 `delivery/<任务ID>/screenshots/<模型>_01_prompt_cheat.png`。若存在下载不可用模型，随后仍须运行 `apply_download_unavailable.py <任务ID> --apply` 为这些模型补模板和下载列表截图；再进入交付（`push_xlsx.py` / `generate_model_qc_platform.py` / `selfcheck.py`），跳过「复测启动与截图」。
 
 ### 下载列表按钮禁用闸门
 
-未命中轮次作弊、但任务详情页「下载列表」疑似无法下载时，必须用集中脚本检查页面；不能用已下载 Workspace 为空、只有说明文档，或首轮上传产物是否存在来推断模型产物能否下载。
+每题都必须在任何模型级质检之前，用集中脚本检查任务详情页「下载列表」。不能用已下载 Workspace 为空、只有说明文档，或首轮上传产物是否存在来推断模型产物能否下载。
 
 ```bash
 node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id <任务ID>
 ```
 
-`discover-download` 会打开任务详情页、点击「下载列表」、截图并把逐模型按钮状态写入 `tasks/<任务ID>/ark_g1/download_list_discover.json`。只有同时满足下面两项，脚本才输出 `classification=artifact_download_unavailable`：
+`discover-download` 会打开任务详情页、点击「下载列表」、截图并把逐模型按钮状态写入 `tasks/<任务ID>/ark_g1/download_list_discover.json`。逐模型只按「下载」按钮本身判定；`等待创建`、`尚未开始` 等文字只作辅助证据，不能替代按钮状态。结果分类如下：
 
-- 下载列表包含全部预期模型；
-- 全部预期模型的「下载」按钮均为禁用状态。`等待创建`、`尚未开始` 等文字只作辅助证据，不能替代按钮状态。
+- `all_artifacts_download_unavailable`：所有已显示、已提交模型的按钮都禁用；这些模型全部套模板，不做模型级质检。
+- `partial_artifact_download_unavailable`：部分模型按钮禁用；只给禁用模型套模板，只质检按钮可用的模型。
+- `all_artifacts_download_available`：所有已提交模型按钮可用；全部走正常质检。
+- `download_state_requires_review`：页面未加载完整、按钮缺失或状态不是明确布尔值；必须停下人工核对，不得猜测、不得开始模型级质检。
+
+预期模型未作答不等于下载状态未知。`collect` 会用实际运行记录与发现结果交叉核对：每个已提交模型都必须有明确按钮状态，未作答模型继续按未作答流程处理。
 
 应用前先按第 6 步创建 `tasks/<任务ID>/qc_cells.json`，完成任务名、题目质量、题目质量说明、label 和分类判断；下载不可用模板不会代替这些题目级判断。随后默认运行 `apply_download_unavailable.py` 只预检，预检通过后再显式应用：
 
@@ -240,9 +253,9 @@ python3 skills/qc-eval/scripts/apply_download_unavailable.py <任务ID>
 python3 skills/qc-eval/scripts/apply_download_unavailable.py <任务ID> --apply
 ```
 
-该脚本保留已有题目质量与分类判断，只更新本场景字段、读取各模型页面的执行过程分和产物质量分，并把下载列表截图作为四个模型的本人验证证据。填写口径固定为：题目不可验证；逐模型反馈质量 `不合格`；脏数据标签 `其他`；质量备注和脏数据理由说明 `产物不可下载，无法验证`；平台反馈质量 `完全不可用`；红线留空。历史任务 6699 的已核对值和当前期句式模板保存在 [config/artifact_download_unavailable.json](config/artifact_download_unavailable.json)，以后不再读取旧飞书表。
+该脚本保留已有题目质量与分类判断，只更新按钮禁用模型，读取这些模型页面的执行过程分和产物质量分，并把下载列表截图作为对应模型的本人验证证据。逐模型填写口径固定为：反馈质量 `不合格`；脏数据标签 `其他`；质量备注和脏数据理由说明 `产物不可下载，无法验证`；平台反馈质量 `完全不可用`。当所有已提交模型都不可下载时，整题再填“题目不可验证 / 所有产物无法下载”，并在没有独立题目红线时将红线留空；部分模型不可下载时，不覆盖题目级可验证性或红线，避免清除可下载模型或题目本身的结论。历史任务 6699 的已核对值和当前期句式模板保存在 [config/artifact_download_unavailable.json](config/artifact_download_unavailable.json)，以后不再读取旧飞书表。
 
-若任一模型按钮可用、预期模型缺失、页面仍在加载、截图缺失或 JSON 未给出上述分类，禁止套用模板，应继续人工核对。应用后按正常交付步骤运行 `push_xlsx.py`、`generate_model_qc_platform.py`、`selfcheck.py`；飞书和 Ark 草稿仍分别受原有用户授权约束。
+页面仍在加载、截图缺失、已提交模型行缺失或按钮状态未知时，禁止套用模板并停止模型级质检。应用后只对 `artifact_download_available_models` 中的模型执行归因标签核对、轨迹检查、产物启动和复测截图；不可下载模型不得补做静态走读或尝试绕过按钮取包。最后按正常交付步骤运行 `push_xlsx.py`、`generate_model_qc_platform.py`、`selfcheck.py`；飞书和 Ark 草稿仍分别受原有用户授权约束。
 
 6. 未命中轮次作弊时，才人工质检并写 `tasks/<TASK_ID>/qc_cells.json`。写备注前必须对照归因标签：
 
@@ -250,7 +263,7 @@ python3 skills/qc-eval/scripts/apply_download_unavailable.py <任务ID> --apply
 python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 ```
 
-脚本读取各模型 `evaluation.json` 的过程/产物标签和维度备注。标签视为标注人评价的一部分；若所选标签符合实际情况，且备注没有与标签相反或矛盾的描述，备注未展开标签不算问题。只有缺陷标签对上明确相反的好评备注、标签本身不符合实测等情况，才会打印 mismatch 并写 `tasks/<TASK_ID>/annotator_tags.json`。这种情况不能定高质量；质量备注必须点名标签与备注或实测不符。`selfcheck.py` 会拦截漏写。备注按下文「句式模版」三档短句写；对照最近一题开头，不要和上一题同一句首，也不要照抄参考表里的长句。
+脚本只读取下载按钮可用模型的 `evaluation.json` 过程/产物标签和维度备注，按 `model_map.json` 自动跳过产物不可下载模型。标签视为标注人评价的一部分；若所选标签符合实际情况，且备注没有与标签相反或矛盾的描述，备注未展开标签不算问题。只有缺陷标签对上明确相反的好评备注、标签本身不符合实测等情况，才会打印 mismatch 并写 `tasks/<TASK_ID>/annotator_tags.json`。这种情况不能定高质量；质量备注必须点名标签与备注或实测不符。`selfcheck.py` 会拦截漏写。备注按下文「句式模版」三档短句写；对照最近一题开头，不要和上一题同一句首，也不要照抄参考表里的长句。
 
 推荐结构：
 
@@ -259,6 +272,8 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
   "task_id": "<任务ID>",
   "task_title": "源表里的完整任务名",
   "sheet": {
+    "artifact_download_unavailable_models": ["仅列下载按钮禁用的表头模型名"],
+    "artifact_download_available_models": ["仅列下载按钮可用的表头模型名"],
     "is_high_quality_task": "否",
     "prompt_quality": "高质量",
     "prompt_quality_note": "简洁说明题目本身的完整性、经济价值、评测价值、可复核性和质量结论，不引用测试模型的实际分数或分差。",
@@ -294,7 +309,7 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 
 飞书列 `质检人`、`所属商`（兼容历史错字 `所述商`）由人工/分配流程维护，质检交付脚本不得填写或上传；即使本地 `qc_cells.json` 或源表里存在这些字段，也必须在生成交付物和回写飞书时跳过。
 
-写完 `qc_cells.json` 后，未命中提示词轮次作弊的题目必须按「复测启动与截图」本人现场出图，再进入下一步交付。不要复用标注人截图，也不要跳过复测直接 `push_xlsx.py`。命中轮次作弊时验证截图已由 `check_prompt_cheat.py` 用提示词红框生成，直接进入交付。
+写完 `qc_cells.json` 后，未命中提示词轮次作弊的题目，只对下载按钮可用的模型按「复测启动与截图」本人现场出图，再进入下一步交付。下载按钮禁用的模型只使用任务详情「下载列表」截图，不打开轨迹、不静态走读、不启动产物；不要复用标注人截图，也不要跳过可下载模型的复测直接 `push_xlsx.py`。命中轮次作弊时验证截图已由 `check_prompt_cheat.py` 用提示词红框生成，直接进入交付。
 
 7. 生成本地交付物，并生成每个模型对应的平台质检填写文件。
 
@@ -334,7 +349,8 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-us
 
 | 产物形态 | 在哪启动 | 脚本 |
 | --- | --- | --- |
-| 提示词轮次作弊 | 不测产物 | `python3 skills/qc-eval/scripts/check_prompt_cheat.py <任务ID> --apply`。四个配置模型共用提示词截图，红框标出配额语句 |
+| 提示词轮次作弊 | 不测产物 | `python3 skills/qc-eval/scripts/check_prompt_cheat.py <任务ID> --apply`。下载可用模型共用提示词截图；下载不可用模型仍用下载列表模板和截图 |
+| 模型下载按钮禁用 | 该模型不质检、不启动 | `python3 skills/qc-eval/scripts/apply_download_unavailable.py <任务ID> --apply`。仅该模型使用下载列表截图并套本地模板；同题按钮可用模型继续按下列产物形态复测 |
 | Vue / Vite 前端，无强制后端栈 | 本机 dev server | `node skills/qc-eval/scripts/screenshot_vue.js <任务ID>`，再 `python3 skills/qc-eval/scripts/compose.py <任务ID>` |
 | Next.js / Node 前端，无强制后端栈，且用户明确要求尽量使用 u03l 或本机缺少 Chrome/FFmpeg/系统能力 | u03l 跑依赖、构建和验证；页面截图仍用本机截图脚本 | `python3 skills/qc-eval/scripts/verify_next_u03l.py <任务ID>` 生成 `tasks/<任务ID>/logs/<模型>-cli-u03l.log`，再按页面形态配置 `tasks/<任务ID>/screenshot_vue.json` 后执行 `node skills/qc-eval/scripts/screenshot_vue.js <任务ID>`、`python3 skills/qc-eval/scripts/compose_cli.py <任务ID> --no-web-from-attachments`、`python3 skills/qc-eval/scripts/compose.py <任务ID>` |
 | SPA MM030 FastAPI + Vite，SQLite 可本机闭环 | 本机 uvicorn + vite | `node skills/qc-eval/scripts/screenshot_spa_mm030.js <任务ID>`，再 `python3 skills/qc-eval/scripts/compose.py <任务ID>` |
@@ -387,7 +403,7 @@ CLI / 测试 / 终端证据截图只保留与复测结论直接相关的命令�
 - 写质量备注前必须对照归因标签、维度备注和实际情况，不要只看分数和总评。标签是标注人评价的一部分；所选标签符合实际且备注没有相反矛盾描述时，备注未展开标签不算错选。只有标签本身不符合实测，或标签是缺陷项但备注明确写成相反好评时，才属于标签错选：反馈质量最高合格，备注要点名哪一维标签与备注或实测不符。分数可以仍与产物相符。漏写时 `selfcheck.py` 会拦截；高质量档遇到标签错选也会拦截。
 - 质量备注写 **1～2 句**，不要写成复核说明书。必须写出页面上的过程分 / 产物分（轮次作弊除外）。同一题各模型可以共用同一开头；**连续几题不要沿用同一句首**（`selfcheck.py` 对照最近 3 题）。没有过程/产物分时，不要用 API 里的聚合分顶替。产物起句不要只扔命令名或字段名，同一句里写清是缺陷还是正常。
 - 质量备注正文不要直接写表格模型名或平台 codeName，例如不要写某个表头代号或平台内部代号。因表格与平台对同一模型使用的代号不同，正文统一写「这个模型」「该测试模型」「这个模型的产物」「该测试模型产物」等自然指代；`qc_cells.json` 的 `sheet.models` key、平台填写文件标题、URL、截图文件名等结构字段仍保留原代号。
-- 反馈质量备注评的是**标注人作业**，不是给模型写产品说明。按下面三档写短句，不要为凑三拍或四条高质量指标把备注拉长。不要写「标注指出」「标注写：」冒号短句，改用「标注人备注」。不要写「标注轨迹」。**转述标注人意思时不要加引号**（包括 “” 和 「」）；只有逐字引用原句才用引号。`selfcheck.py` 命中弯引号即不合格。命中提示词轮次作弊时，各模型备注只陈述该轮次作弊行为，并写明反馈质量不合格；对应审核理由写反馈完全不可用。
+- 反馈质量备注评的是**标注人作业**，不是给模型写产品说明。按下面三档写短句，不要为凑三拍或四条高质量指标把备注拉长。不要写「标注指出」「标注写：」冒号短句，改用「标注人备注」。不要写「标注轨迹」。**转述标注人意思时不要加引号**（包括 “” 和 「」）；只有逐字引用原句才用引号。`selfcheck.py` 命中弯引号即不合格。命中提示词轮次作弊时，下载可用模型备注只陈述该轮次作弊行为，并写明反馈质量不合格；对应审核理由写反馈完全不可用。下载不可用模型只使用产物不可下载模板。
 - **两套档位词不要混用。** 飞书「反馈质量」、`rating`、质量备注 `note` 用 `高质量` / `合格` / `不合格`。平台「请选择该用户的反馈质量」、`platform_audit_reason`、飞书「一次质检平台审核理由」用 `完全可用` / `部分可用` / `完全不可用`。审核理由禁止写「故高质量」「故合格」「故不合格」「反馈质量为高质量」。
 - **档位理由必须写清，且保持短句。** 复核人只看质量备注和审核理由，就要知道本条为什么落在该档。禁止只复述模型卡死、花屏、报错而不提标注打分对不对。
   - `高质量` / `完全可用`：用「执行过程和产物质量分别与实际情况一致，评分正确」收束。不要再列一项仍构成合格档的偏差。
@@ -421,7 +437,7 @@ CLI / 测试 / 终端证据截图只保留与复测结论直接相关的命令�
 5. 合格 / 过程偏低：模型执行过程中完成根因定位、修复和自测，标注人备注写自测不充分与实际执行过程不符。过程 3 分偏低，产物 2 分相符，反馈质量为合格。
 6. 合格 / 标签错选：过程 8 分相符，产物 8 分相符，但过程标签自测不充分和标注人备注比较充分不符，反馈质量为合格。
 7. 不合格 / 敷衍恶意打分：标注评语空泛、各模型串同一张图，属敷衍恶意打分，结论不可信。反馈质量为不合格。
-8. 不合格 / AI 打分：标注备注带百分制和作为 AI 口癖，属 AI 打分红线，结论不可信。反馈质量为不合格。
+8. 不合格 / AI 打分：标注人员明确说明提交的评分与评价由 AI 生成，触发 AI 评价红线，反馈质量为不合格。
 9. 不合格 / 低质量任务：提示词要求模型工具轮次达到 450，属轮次作弊红线，本题不再核产物。反馈质量为不合格。
 10. 不合格 / 切换模型：标注按本模型独立完成来打分，轨迹前段与他模型雷同，属用户切换模型错误，结论不可信。反馈质量为不合格。
 
@@ -432,14 +448,14 @@ CLI / 测试 / 终端证据截图只保留与复测结论直接相关的命令�
 1. 质检相关动作只走本技能列出的集中脚本，不直接调底层 API 或 lark-cli。
 2. 本仓库当前默认飞书交付目标为 `sheet=vD6HYi`。源表只读本地 `docs/44.xlsx`。
 3. 自动流程只生成本地文件；飞书回写只能在用户明确下达上传/回写指令后，通过显式 push 命令执行。用户只说“质检 <任务ID>”时，不得执行 `--write`。平台质检表单同样：只有用户明确要求填写网页表单后才运行 `fill_g1_audit_form.js`；该脚本只能保存草稿，不能提交。
-4. 截图必须是本人复测证据，不能复用标注人的截图；`delivery/<TASK_ID>/screenshots/` 只保留有效截图 PNG（如 `<模型>_01_cli.png`）和合成图 PNG（`<模型>_verify.png`），不要保留 `log.txt`、临时图、别名图或其他辅助文件。合成图必须按左右横向拼接原图，禁止上下纵向拼接；若只有一张有效截图，则直接复用该原图作为 `<模型>_verify.png`。提示词轮次作弊时四个配置模型都用同一张提示词红框图，文件名用 `<模型>_01_prompt_cheat.png`。
+4. 截图必须是本人复测证据，不能复用标注人的截图；`delivery/<TASK_ID>/screenshots/` 只保留有效截图 PNG（如 `<模型>_01_cli.png`）和合成图 PNG（`<模型>_verify.png`），不要保留 `log.txt`、临时图、别名图或其他辅助文件。合成图必须按左右横向拼接原图，禁止上下纵向拼接；若只有一张有效截图，则直接复用该原图作为 `<模型>_verify.png`。提示词轮次作弊时，下载可用模型共用提示词红框图，文件名用 `<模型>_01_prompt_cheat.png`；下载不可用模型使用 `<模型>_01_download_blocker.png`。
 5. `delivery/<TASK_ID>/<TASK_ID>.xlsx` 必须从空白 workbook 重建，只包含表头行和该任务行。
 6. `.ark_platform_state.json`、本地探测缓存和登录态文件不能提交。
-7. 流程脚本未调通、出现未配置额外模型、首轮「上传产物」未完整下载/检查、或已完成模型的「下载列表」采不到时，停下来与人工核对，不要继续编造材料。44期预期模型缺失不属于模型集异常，但必须有 `missing=true` 和缺失证据。两类产物必须分别判断，任何一方为空都不能推断另一方为空。命中提示词轮次作弊而采集脚本主动跳过 workspace / 轨迹时，不按模型下载列表拦截。
+7. 流程脚本未调通、出现未配置额外模型、首轮「上传产物」未完整下载/检查、或已完成模型的「下载列表」采不到时，停下来与人工核对，不要继续编造材料。44期预期模型缺失不属于模型集异常，但必须有 `missing=true` 和缺失证据。两类产物必须分别判断，任何一方为空都不能推断另一方为空。命中提示词轮次作弊时仍保留前置下载按钮判定：下载不可用模型用下载阻断模板，下载可用模型用提示词作弊模板；两类模型都跳过 workspace / 轨迹和产物复测。
 8. 提示词轮次作弊必须在页面提示词和首轮上传产物中的 Markdown/文本全部收集后、复测模型产物之前判定。禁止只看页面 Prompt，或先测完模型产物再补判作弊。
 9. 填写平台质检表单时只改右侧「质检」面板，只点「保存草稿」。禁止提交审核、打回，也禁止改评测打分或其他页签。
 10. 写反馈质量前必须对照评测打分的归因标签、维度备注和实际情况。标签是标注人评价的一部分；标签成立且备注没有相反矛盾描述时，不因备注未展开标签降档。标签错选不能定高质量，质量备注必须点名标签与备注或实测不符。
-11. “产物不可下载”只由任务详情「下载列表」中全部预期模型下载按钮禁用来判定，并由 `download_list_discover.json` 留存机器可读证据。命中后使用 `apply_download_unavailable.py` 和 `config/artifact_download_unavailable.json`，不要再查历史飞书表，也不要把它改判为 Workspace 为空、产物无法启动或反馈红线。
+11. 每题必须先按模型检查任务详情「下载列表」按钮。某模型“产物不可下载”只由该模型下载按钮禁用来判定，并由 `download_list_discover.json` 留存机器可读证据；该模型使用 `apply_download_unavailable.py` 和 `config/artifact_download_unavailable.json`，不再检查轨迹、标注或产物。部分模型不可下载时，只跳过并套用这些模型，其余可下载模型照常质检；状态未知时整题停止。不要再查历史飞书表，也不要把按钮禁用改判为 Workspace 为空、产物无法启动或反馈红线。
 
 ## 常用命令
 
@@ -448,11 +464,12 @@ python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id <任务ID>
 node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome
 # 默认使用 Chrome 的 quan-134 个人资料（Profile 4）
 # 或：node skills/qc-eval/scripts/fetch_g1_platform.js auth-login
+# 每题强制先检查逐模型下载按钮；状态未知时停止：
+node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id <任务ID>
 node skills/qc-eval/scripts/fetch_g1_platform.js collect --task-id <任务ID>
 python3 skills/qc-eval/scripts/extract_g1_workspaces.py <任务ID>
 python3 skills/qc-eval/scripts/check_prompt_cheat.py <任务ID>
-# 任务详情页下载按钮疑似禁用时先检查；建好题目级 qc_cells 后再应用模板：
-node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id <任务ID>
+# 建好题目级 qc_cells 后，对按钮禁用模型应用模板；按钮可用模型继续正常质检：
 python3 skills/qc-eval/scripts/apply_download_unavailable.py <任务ID>
 python3 skills/qc-eval/scripts/apply_download_unavailable.py <任务ID> --apply
 # 命中轮次作弊时用 --apply 写 qc_cells 并出提示词红框截图，跳过下面的产物复测：
