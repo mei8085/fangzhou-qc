@@ -333,7 +333,7 @@ _ALIGN_RE = re.compile(r"相符|一致|打分准确|评分正确")
 _QUALIFIED_GAP_RE = re.compile(
     r"偏高|偏低|不完善|不完整|缺(?:截图|步骤|证据|图)|"
     r"无法.{0,12}复核|不符|偏少|未覆盖|未测|理由偏短|佐证不足|"
-    r"错选|标签与备注"
+    r"错选|标签与备注|归因.{0,16}不准确"
 )
 _PROCESS_SCORE_RE = re.compile(r"过程\s*\d+\s*分")
 _ARTIFACT_SCORE_RE = re.compile(r"产物(?:质量)?\s*\d+\s*分")

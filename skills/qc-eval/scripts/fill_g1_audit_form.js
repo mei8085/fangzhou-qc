@@ -78,7 +78,7 @@ function parseArgs(argv) {
 function usage(code = 2) {
   console.error(`usage:
   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>
-       [--only <platform|code|sheet|runId>] [--dry-run] [--headed]
+       [--only <platform|code|sheet|runId>] [--only-fields feedbackNote,auditReason] [--dry-run] [--headed]
        [--state skills/qc-eval/.ark_platform_state.json]
 
 This command writes the QC form and clicks 「保存草稿」 only.
@@ -513,6 +513,18 @@ async function fillOneModel(page, row, want, opts, outDir, calls) {
   await lockNonQcPanels(page);
   const evalBefore = await snapshotEvalPanel(page);
 
+  const onlyFields = opts['only-fields'] ? String(opts['only-fields']).split(',').map((s) => s.trim()) : null;
+  if (onlyFields) {
+    if (!onlyFields.length || onlyFields.some((key) => !['feedbackNote', 'auditReason'].includes(key))) {
+      throw new Error('--only-fields supports feedbackNote,auditReason only');
+    }
+    const before = await readFilled(opened.audit);
+    want = Object.fromEntries(Object.keys(want).map((key) => [key, onlyFields.includes(key) ? want[key] : before[LABEL[key]]]));
+    for (const key of onlyFields) {
+      await fillLabeledTextarea(opened.audit, LABEL[key], want[key]);
+      console.log(`   [field] ${LABEL[key]} (${want[key].length} chars)`);
+    }
+  } else {
   await clickRadio(opened.audit, LABEL.taskQuality, want.taskQuality);
   console.log(`   [field] ${LABEL.taskQuality}=${want.taskQuality}`);
   await fillLabeledTextarea(opened.audit, LABEL.taskNote, want.taskNote);
@@ -525,6 +537,7 @@ async function fillOneModel(page, row, want, opts, outDir, calls) {
   console.log(`   [field] ${LABEL.auditReason} (${want.auditReason.length} chars)`);
   await setDirtyTags(opened.audit, want.dirtyTags);
   console.log(`   [field] ${LABEL.dirtyTags}=${want.dirtyTags.join('、') || '不选'}`);
+  }
 
   const got = await readFilled(opened.audit);
   const mismatches = filledMatches(got, want);
@@ -551,6 +564,18 @@ async function fillOneModel(page, row, want, opts, outDir, calls) {
   await clickSaveDraft(page);
   const saved = await waitForDraftSaved(page, calls, callsLen);
   await sleep(800);
+  if (onlyFields) {
+    const verificationPage = await page.context().newPage();
+    try {
+      await installGuards(verificationPage, calls);
+      const verification = await openAuditPage(verificationPage, row);
+      const issues = filledMatches(await readFilled(verification.audit), want);
+      if (issues.length) throw new Error(`saved draft readback mismatch: ${issues.join('; ')}`);
+      console.log('   [verified] fresh page matches changed fields and preserves all other QC fields');
+    } finally {
+      await verificationPage.close();
+    }
+  }
   const afterShot = path.join(outDir, `_audit_fill_saved_${tag}.png`);
   await shot(page, afterShot);
 

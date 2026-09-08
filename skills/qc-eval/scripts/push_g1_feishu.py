@@ -157,6 +157,7 @@ def main() -> int:
         help="确认用户已明确要求上传/回写飞书；没有该确认时 --write 会被拒绝",
     )
     parser.add_argument("--only-changed-text", action="store_true", help="只写文字，跳过截图")
+    parser.add_argument("--audit-reason-model", default="", help="审核理由汇总列仅替换该模型所在行，保留远端其他模型原文")
     parser.add_argument(
         "--only-headers",
         default="",
@@ -296,6 +297,18 @@ def main() -> int:
         value = ws.cell(2, lcol).value
         text = "" if value is None else str(value)
         cell_a1 = f"{get_column_letter(rcol)}{row}"
+        if args.audit_reason_model and header == "一次质检平台审核理由（按模型）":
+            prefix = args.audit_reason_model + "（"
+            replacement = [line for line in text.splitlines() if line.startswith(prefix)]
+            remote_text = read_remote_cell(token, args.sheet_id, cell_a1, args.profile)
+            lines = remote_text.splitlines(keepends=True)
+            matches = [i for i, line in enumerate(lines) if line.startswith(prefix)]
+            if len(replacement) != 1 or len(matches) != 1:
+                raise ValueError("审核理由无法唯一匹配模型，停止写入汇总列")
+            index = matches[0]
+            ending = lines[index][len(lines[index].rstrip('\r\n')):]
+            lines[index] = replacement[0] + ending
+            text = ''.join(lines)
         if header == LABEL_HEADER:
             remote_text = read_remote_cell(token, args.sheet_id, cell_a1, args.profile)
             if remote_text:
@@ -325,6 +338,10 @@ def main() -> int:
                 text_count += 1
             continue
         write_cell(token, args.sheet_id, cell_a1, text, args.profile, dry)
+        if only_headers and not dry:
+            if read_remote_cell(token, args.sheet_id, cell_a1, args.profile) != text:
+                raise ValueError(f"{cell_a1} 写入后回读不一致")
+            print(f"     [verified] {cell_a1}")
         text_count += 1
 
     image_count = 0
