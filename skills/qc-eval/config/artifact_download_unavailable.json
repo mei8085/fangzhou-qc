@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "scenario": "artifact_download_unavailable",
   "historical_reference": {
     "task_id": "6699",
@@ -35,7 +35,7 @@
   "sheet": {
     "artifact_download_unavailable": true,
     "verifiable": "否",
-    "verifiable_reason": "下载列表中所有已提交模型的下载按钮均为禁用状态，产物不可下载，无法验证。",
+    "verifiable_reason": "产物不可下载，无法验证",
     "redline_issue": "",
     "redline_note": ""
   },
@@ -43,14 +43,10 @@
     "rating": "不合格",
     "dirty_tag": "其他",
     "dirty_tag_reason": "产物不可下载，无法验证",
-    "note_templates": [
-      "下载列表显示产物不可下载，无法验证；标注人给执行过程 {process_score} 分、产物质量 {artifact_score} 分，反馈质量为不合格。",
-      "任务页下载列表显示产物不可下载，无法验证；标注人给执行过程 {process_score} 分、产物质量 {artifact_score} 分，反馈质量为不合格。",
-      "平台下载列表表明产物不可下载，无法验证；标注人给执行过程 {process_score} 分、产物质量 {artifact_score} 分，反馈质量为不合格。",
-      "产物下载按钮处于禁用状态，产物不可下载，无法验证；标注人给执行过程 {process_score} 分、产物质量 {artifact_score} 分，反馈质量为不合格。"
-    ],
+    "note": "产物不可下载，无法验证",
+    "suppress_score_append": true,
     "platform_feedback_quality": "完全不可用",
-    "platform_audit_reason": "下载列表中产物不可下载，无法验证，反馈完全不可用。",
+    "platform_audit_reason": "产物不可下载，无法验证",
     "platform_dirty_tag": "其他"
   },
   "evidence": {

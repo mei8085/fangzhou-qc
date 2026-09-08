@@ -30,7 +30,7 @@ function loadConfig() {
   const argv = process.argv;
   const cmd = argv[2];
   const has = (flag) => argv.includes(flag);
-  if (cmd === 'collect' || cmd === 'discover-download' || cmd === 'discover-audit') {
+  if (['collect', 'discover-download', 'discover-audit', 'discover-session', 'collect-sessions'].includes(cmd)) {
     if (!has('--project')) argv.push('--project', projectId);
     if (!has('--output-subdir')) argv.push('--output-subdir', cfg.output_subdir || 'ark_g1');
     if (cmd === 'collect' && platformCodes && !has('--expect-platform-codes')) {

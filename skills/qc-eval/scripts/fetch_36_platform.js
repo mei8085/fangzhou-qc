@@ -29,6 +29,8 @@ const { spawnSync } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const { atomicWriteJSON } = require('./lib/concurrency');
+const { collectOriginalSessions, originalSessionIndex, textValue } = require('./lib/original_sessions');
+const { readSessionResponse } = require('./lib/session_response');
 
 const HOST = 'https://console.volcengine.com';
 const ARK_REFERER = 'https://ark.volcengine.com/';
@@ -89,6 +91,9 @@ function usage(code = 2) {
   node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json] [--profile <profile-dir>] [--chrome-user-data-dir <dir>]
   node skills/qc-eval/scripts/fetch_38_platform.js auth-login [--state skills/qc-eval/.ark_platform_state.json] [--url <login-url>]
   node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id 6397
+  node skills/qc-eval/scripts/fetch_g1_platform.js discover-session --task-id 7972 --run-id 24669
+  node skills/qc-eval/scripts/fetch_g1_platform.js discover-session --task-id 7979 --run-id 24699 --download-original
+  node skills/qc-eval/scripts/fetch_g1_platform.js collect-sessions --task-id 7972 [--run-id 24669] [--keep-existing]
   node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 (--task-id 475 | --task-title <title>) --sheet-task-id <任务ID> [--state <state.json>] [--tasks-dir tasks] [--skip-workspace] [--skip-trajectory] [--keep-existing] [--runs 1702,1701]
   node skills/qc-eval/scripts/fetch_38_platform.js find-project (--task-id 475 | --task-title <title>) [--projects 230-270|256] [--state <state.json>]
 
@@ -144,7 +149,7 @@ function sleep(ms) {
 
 function isTransientApiError(err) {
   const msg = String((err && err.message) || err || '');
-  return /InternalServiceTimeout|AccountFlowLimitExceeded|timeout/i.test(msg);
+  return /InternalServiceTimeout|AccountFlowLimitExceeded|timeout|ECONNRESET|ETIMEDOUT|HTTP (?:408|429|500|502|503|504)\b/i.test(msg);
 }
 
 function csrfFromState(statePath) {
@@ -161,7 +166,7 @@ function responseError(action, status, body) {
   return new Error(`${action} -> HTTP ${status}: ${text.slice(0, 800)}`);
 }
 
-async function postAction(ctx, statePath, action, data) {
+async function postAction(ctx, statePath, action, data, { binary = false } = {}) {
   const maxAttempts = Number(process.env.ARK_FETCH_RETRIES || 4);
   let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -176,6 +181,7 @@ async function postAction(ctx, statePath, action, data) {
         timeout: 120000,
       });
       const status = resp.status();
+      if (binary) return await readSessionResponse(resp);
       let body;
       try {
         body = await resp.json();
@@ -347,14 +353,15 @@ function msToISO(ms) {
 }
 
 function truncateForMarkdown(value, limit = 50000) {
-  const s = value == null ? '' : String(value);
+  const s = value == null ? '' : textValue(value);
   if (s.length <= limit) return s;
   return `${s.slice(0, limit)}\n\n[truncated ${s.length - limit} chars; see raw JSON for full data]`;
 }
 
-function renderTrajectoryMarkdown(run, sessionList, detailsBySession) {
+function renderTrajectoryMarkdown(run, sessionList, detailsBySession, original) {
   const lines = [];
   lines.push(`# Session trajectory for run ${run.modelRun.taskModelRunId}`);
+  if (original) lines.push('', originalSessionIndex(original));
   lines.push('');
   lines.push(`- task: ${run.task.id} ${run.task.title}`);
   lines.push(`- model: ${run.modelRun.realName} (${run.modelRun.codeName})`);
@@ -830,39 +837,8 @@ async function collectOneRun(ctx, statePath, run, taskDir, opts) {
     writeJSON(workspaceBrowserPath, workspaceBrowser);
   }
 
-  if (!opts.skipTrajectory) {
-    const trajDir = path.join(runDir, 'trajectory');
-    ensureDir(trajDir);
-    const sessionsPath = path.join(trajDir, 'sessions.json');
-    let sessions;
-    if (opts.keepExisting && fs.existsSync(sessionsPath)) {
-      sessions = readJSON(sessionsPath);
-      console.log(`   [keep] ${rel(sessionsPath)}`);
-    } else {
-      sessions = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelByteHouseSessionListGet', { taskModelRunId: runId });
-      writeJSON(sessionsPath, sessions);
-    }
-    const detailsBySession = {};
-    for (const item of sessions.items || []) {
-      const detailPath = path.join(trajDir, `${sanitize(item.sessionId)}.json`);
-      let detail;
-      if (opts.keepExisting && fs.existsSync(detailPath)) {
-        detail = readJSON(detailPath);
-        console.log(`   [keep] ${rel(detailPath)}`);
-      } else {
-        detail = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelByteHouseSessionDetailGet', {
-          taskModelRunId: runId,
-          sessionId: item.sessionId,
-        });
-        writeJSON(detailPath, detail);
-      }
-      detailsBySession[item.sessionId] = detail;
-      console.log(`   [trajectory] session ${item.sessionId} traces=${(detail.sessionTraces || []).length}`);
-    }
-    fs.writeFileSync(path.join(trajDir, 'trajectory.md'), renderTrajectoryMarkdown(run, sessions, detailsBySession));
-  } else {
-    console.log('   [trajectory] skipped by --skip-trajectory');
-  }
+  if (!opts.skipTrajectory) await fetchTrajectory(ctx, statePath, run, runDir, opts);
+  else console.log('   [trajectory] skipped by --skip-trajectory');
 
   if (!opts.skipDownloadList) {
     await fetchDownloadList(ctx, statePath, run, runDir, opts);
@@ -1555,6 +1531,141 @@ async function verifyArkState(statePath, opts = {}) {
   }
 }
 
+async function fetchTrajectory(ctx, statePath, run, runDir, opts) {
+  const runId = run.modelRun.taskModelRunId;
+  const trajDir = path.join(runDir, 'trajectory');
+  ensureDir(trajDir);
+  let original;
+  try {
+    original = await collectOriginalSessions({
+      runId, dir: path.join(trajDir, 'original_sessions'), keepExisting: opts.keepExisting,
+      request: (action, data, options) => postAction(ctx, statePath, action, data, options),
+    });
+  } catch (err) {
+    fs.writeFileSync(path.join(trajDir, 'trajectory.md'), '# Original Session collection failed\n\nDo not use a prior collection as current evidence. Inspect original_sessions/manifest.json and browser.json, then retry or use discover-session --download-original.\n');
+    throw err;
+  }
+  console.log(`   [original-session] run ${runId}: ${original.status}; files=${original.files.length}`);
+  try {
+    const sessionsPath = path.join(trajDir, 'sessions.json');
+    let sessions;
+    if (opts.keepExisting && fs.existsSync(sessionsPath)) {
+      sessions = readJSON(sessionsPath);
+      console.log(`   [keep] ${rel(sessionsPath)}`);
+    } else {
+      sessions = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelByteHouseSessionListGet', { taskModelRunId: runId });
+      writeJSON(sessionsPath, sessions);
+    }
+    const detailsBySession = {};
+    for (const item of sessions.items || []) {
+      const detailPath = path.join(trajDir, `${sanitize(item.sessionId)}.json`);
+      let detail;
+      if (opts.keepExisting && fs.existsSync(detailPath)) {
+        detail = readJSON(detailPath);
+        console.log(`   [keep] ${rel(detailPath)}`);
+      } else {
+        detail = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelByteHouseSessionDetailGet', {
+          taskModelRunId: runId,
+          sessionId: item.sessionId,
+        });
+        writeJSON(detailPath, detail);
+      }
+      detailsBySession[item.sessionId] = detail;
+      console.log(`   [trajectory] session ${item.sessionId} traces=${(detail.sessionTraces || []).length}`);
+    }
+    fs.writeFileSync(path.join(trajDir, 'trajectory.md'), renderTrajectoryMarkdown(run, sessions, detailsBySession, original));
+  } catch (err) {
+    if (!original || original.status !== 'complete') throw err;
+    writeJSON(path.join(trajDir, 'bytehouse_error.json'), { error: err.message });
+    fs.writeFileSync(path.join(trajDir, 'trajectory.md'), renderTrajectoryMarkdown(run, { items: [] }, {}, original)
+      + '\nByteHouse collection failed; original Session evidence is available. See bytehouse_error.json.\n');
+    console.warn(`   [trajectory] ByteHouse unavailable: ${err.message}; retained complete original Sessions`);
+  }
+}
+
+async function collectSessions(opts) {
+  const taskId = opts['task-id'];
+  if (!taskId) throw new Error('collect-sessions requires --task-id');
+  const taskDir = path.resolve(opts['tasks-dir'] || path.join(REPO_ROOT, 'tasks'), String(taskId));
+  const map = readJSON(path.join(taskDir, 'model_map.json'));
+  const infos = Object.values(map.models).filter((info) => !info.missing
+    && (!opts['run-id'] || String(info.task_model_run_id) === String(opts['run-id'])));
+  if (!infos.length) throw new Error('no matching collected model run');
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const statePath = path.resolve(opts.state || DEFAULT_STATE);
+    const ctx = await browser.newContext({ storageState: statePath });
+    for (const info of infos) {
+      const runDir = path.join(taskDir, opts['output-subdir'] || 'ark_g1', `${info.task_model_run_id}__${info.platform}`);
+      const run = readJSON(path.join(runDir, 'model_run.json'));
+      if (String(run.task.id) !== String(taskId) || String(run.modelRun.taskModelRunId) !== String(info.task_model_run_id)) throw new Error('cached Session run/task binding mismatch');
+      await fetchTrajectory(ctx, statePath, run, runDir, { keepExisting: Boolean(opts['keep-existing']) });
+    }
+  } finally { await browser.close(); }
+}
+
+async function discoverSession(opts) {
+  const cfg = loadG1Config();
+  const taskId = opts['task-id'];
+  const runId = opts['run-id'];
+  if (!taskId || !runId) throw new Error('discover-session requires --task-id and --run-id');
+  const projectId = Number(opts.project || cfg?.project_id || 326);
+  const outDir = path.resolve(opts['tasks-dir'] || path.join(REPO_ROOT, 'tasks'), String(taskId), opts['output-subdir'] || 'ark_g1', `session_discovery_${sanitize(runId)}`);
+  ensureDir(outDir);
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const ctx = await browser.newContext({ storageState: path.resolve(opts.state || DEFAULT_STATE) });
+    const page = await ctx.newPage();
+    const calls = [];
+    const pending = [];
+    page.on('response', (response) => {
+      if (!response.url().includes('/api/top/ark/')) return;
+      const request = response.request();
+      const action = response.url().split('/').pop().split('?')[0];
+      const item = { action, status: response.status(), contentType: response.headers()['content-type'], postData: request.postData() };
+      calls.push(item);
+      if (!/Session(?:Browser|Preview|List|Detail)Get$/.test(action) || /event-stream/.test(item.contentType || '')) return;
+      pending.push(response.text().then((text) => {
+        try { item.body = JSON.parse(text); } catch { item.text = text; }
+      }).catch((err) => { item.bodyError = err.message; }));
+    });
+    const url = `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${runId}?mode=audit`;
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await sleep(15000);
+    if (opts['click-text']) {
+      const label = String(opts['click-text']);
+      if (!/session|轨迹/i.test(label)) throw new Error('only session/trajectory navigation is allowed');
+      await page.getByText(label, { exact: true }).first().click();
+      await sleep(5000);
+    }
+    if (opts['download-original']) {
+      await page.getByRole('button', { name: '更多 Session 操作', exact: true }).click();
+      await page.screenshot({ path: path.join(outDir, 'download_menu.png'), fullPage: true });
+      const downloadPromise = page.waitForEvent('download', { timeout: 30000 });
+      await page.getByText(/^下载原始\s*Session$/).click();
+      const download = await downloadPromise;
+      const target = path.join(outDir, `download_${sanitize(path.basename(download.suggestedFilename()))}`);
+      await download.saveAs(target);
+      if (await download.failure()) throw new Error('original Session browser download failed');
+      const bytes = fs.readFileSync(target);
+      writeJSON(path.join(outDir, 'download_result.json'), {
+        file: path.basename(target), size: bytes.length,
+        sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+      });
+      console.log(`==> browser original Session download: ${rel(target)} (${bytes.length} bytes)`);
+    }
+    fs.writeFileSync(path.join(outDir, 'page.txt'), await page.locator('body').innerText());
+    fs.writeFileSync(path.join(outDir, 'page.html'), await page.content());
+    await page.screenshot({ path: path.join(outDir, 'page.png'), fullPage: true });
+    await Promise.all(pending);
+    writeJSON(path.join(outDir, 'network.json'), { url, calls });
+    console.log(`==> session discovery: ${rel(outDir)}`);
+    console.log(`==> actions: ${[...new Set(calls.map((c) => c.action))].join(', ')}`);
+  } finally {
+    await browser.close();
+  }
+}
+
 async function discoverAuditForm(opts) {
   const cfg = loadG1Config();
   const projectId = Number(opts.project || (cfg && cfg.project_id) || 281);
@@ -1673,6 +1784,8 @@ async function main() {
   if (opts.cmd === 'collect') return collect(opts);
   if (opts.cmd === 'discover-download') return discoverDownloadList(opts);
   if (opts.cmd === 'discover-audit') return discoverAuditForm(opts);
+  if (opts.cmd === 'discover-session') return discoverSession(opts);
+  if (opts.cmd === 'collect-sessions') return collectSessions(opts);
   usage();
 }
 

@@ -256,6 +256,8 @@ def score_clause(data: dict) -> str:
 def compose_feedback_note(data: dict) -> str:
     """Return the reviewer note, appending scores only when the text has none."""
     note = str(data.get("note") or data.get("platform_feedback_note") or "").strip()
+    if data.get("suppress_score_append"):
+        return note
     if SCORE_IN_NOTE.search(note):
         return note
     clause = score_clause(data)

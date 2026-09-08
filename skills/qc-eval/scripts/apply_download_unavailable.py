@@ -9,7 +9,6 @@ make. It never writes Feishu or Ark audit forms.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import shutil
 import sys
@@ -143,14 +142,6 @@ def model_names(model_map: dict) -> list[str]:
     return names
 
 
-def note_template(template: dict, task_id: str) -> str:
-    choices = list((template.get("model") or {}).get("note_templates") or [])
-    if not choices:
-        raise RuntimeError("参考模板缺少 model.note_templates")
-    digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
-    return choices[int(digest, 16) % len(choices)]
-
-
 def build_plan(
     task_id: str,
     qc: dict,
@@ -183,7 +174,9 @@ def build_plan(
 
     models = sheet.setdefault("models", {})
     template_model = template.get("model") or {}
-    note = note_template(template, task_id)
+    note = str(template_model.get("note") or "").strip()
+    if not note:
+        raise RuntimeError("参考模板缺少 model.note")
     applied = []
     for name in unavailable_names:
         info = (model_map.get("models") or {}).get(name) or {}
@@ -198,10 +191,8 @@ def build_plan(
             "rating": template_model["rating"],
             "execution_process_score": process_score,
             "execution_artifact_score": artifact_score,
-            "note": note.format(
-                process_score=process_score,
-                artifact_score=artifact_score,
-            ),
+            "note": note,
+            "suppress_score_append": bool(template_model.get("suppress_score_append")),
             "platform_audit_reason": template_model["platform_audit_reason"],
             "dirty_tag": template_model["dirty_tag"],
             "dirty_tag_reason": template_model["dirty_tag_reason"],

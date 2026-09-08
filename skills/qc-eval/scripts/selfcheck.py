@@ -644,8 +644,8 @@ def artifact_download_unavailable_issues(
         if cell_text(ws, verifiable_col) != "否":
             add(verifiable_col, "download-unavailable-verifiable-must-be-否")
         reason = cell_text(ws, reason_col)
-        if "产物不可下载" not in reason or "无法验证" not in reason:
-            add(reason_col, "download-unavailable-reason-must-name-artifact-and-verification")
+        if reason != "产物不可下载，无法验证":
+            add(reason_col, "download-unavailable-reason-must-equal-fixed-text")
         if cell_text(ws, redline_col) and not is_redline_rating(ws, headers.get(_TASK_RATING_HEADER)):
             add(redline_col, "download-unavailable-feedback-redline-must-be-empty")
 
@@ -658,16 +658,16 @@ def artifact_download_unavailable_issues(
         if cell_text(ws, rating_col) != "不合格":
             add(rating_col, "download-unavailable-rating-must-be-不合格")
         note = cell_text(ws, note_col)
-        if "产物不可下载" not in note or "无法验证" not in note:
-            add(note_col or rating_col, "download-unavailable-note-must-name-artifact-and-verification")
+        if note != "产物不可下载，无法验证":
+            add(note_col or rating_col, "download-unavailable-note-must-equal-fixed-text")
         if cell_text(ws, dirty_col) != "其他":
             add(dirty_col or rating_col, "download-unavailable-dirty-tag-must-be-其他")
         dirty_reason = cell_text(ws, dirty_reason_col)
         if "产物不可下载" not in dirty_reason or "无法验证" not in dirty_reason:
             add(dirty_reason_col or rating_col, "download-unavailable-dirty-reason-invalid")
-        audit = str((qc_models.get(model) or {}).get("platform_audit_reason") or "")
-        if "产物不可下载" not in audit or "无法验证" not in audit or "完全不可用" not in audit:
-            add(rating_col, "download-unavailable-platform-audit-reason-invalid")
+        audit = str((qc_models.get(model) or {}).get("platform_audit_reason") or "").strip()
+        if audit != "产物不可下载，无法验证":
+            add(rating_col, "download-unavailable-platform-audit-reason-must-equal-fixed-text")
 
         screenshots = REPO_ROOT / "delivery" / task_id / "screenshots"
         if not (screenshots / f"{model}_01_download_blocker.png").exists():
@@ -943,8 +943,11 @@ def feedback_rating_rationale_issues(
     """Require Feishu notes to name 高质量/合格/不合格; audits to name 完全可用/部分可用/完全不可用."""
     combined = cell_text(ws, headers.get(_PLATFORM_AUDIT_HEADER))
     qc_models = ((qc or {}).get("sheet") or {}).get("models") or {}
+    unavailable_models = artifact_download_unavailable_models(qc)
     bad: dict[int, list[str]] = {}
     for model, rating_col, note_col in model_rating_note_cols(headers):
+        if model in unavailable_models:
+            continue
         rating = cell_text(ws, rating_col)
         note = cell_text(ws, note_col)
         data = qc_models.get(model) or {}
@@ -1162,6 +1165,12 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
     task_note_col = headers.get(_PROMPT_QUALITY_NOTE_HEADER)
     qc = load_qc_cells(task_id)
     prompt_cheat = bool(task_id) and is_prompt_cheat_task(REPO_ROOT / "tasks" / task_id, qc)
+    unavailable_models = artifact_download_unavailable_models(qc)
+    unavailable_note_cols = {
+        note_col
+        for model, _rating_col, note_col in model_rating_note_cols(headers)
+        if model in unavailable_models and note_col
+    }
     bad: dict[int, list[str]] = {}
     for c in cols:
         v = ws.cell(2, c).value
@@ -1173,7 +1182,7 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
             col=c,
             model_note_cols=model_note_cols,
             period=period,
-            skip_annotator_checks=prompt_cheat,
+            skip_annotator_checks=prompt_cheat or c in unavailable_note_cols,
         )
         if c == task_note_col:
             issues.extend(scan_task_quality_note(text))
