@@ -10,23 +10,23 @@ from .paths import REPO_ROOT, SKILL_DIR, default_g1_source_xlsx
 
 CONFIG_PATH = SKILL_DIR / "config" / "g1.json"
 _FALLBACK_CONFIG = {
-    "period": "44期",
-    "project_id": 326,
-    "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/326/task/7841",
-    "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/326/review/{taskModelRunId}?mode=audit",
+    "period": "45期",
+    "project_id": 383,
+    "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/383/task/9046",
+    "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/383/review/{taskModelRunId}?mode=audit",
     "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
-    "source_xlsx": "docs/44.xlsx",
+    "source_xlsx": "docs/45.xlsx",
     "source_sheet": "Sheet1",
-    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=vD6HYi",
-    "feishu_sheet_id": "vD6HYi",
+    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=xDbmHs",
+    "feishu_sheet_id": "xDbmHs",
     "output_subdir": "ark_g1",
     "allow_missing_models": True,
     "missing_model_rating": "不合格",
     "models": [
-        {"sheet": "0825E", "code": "0825E", "platform": "harpoon"},
-        {"sheet": "0901B", "code": "0901B", "platform": "gazelle"},
-        {"sheet": "0819K-RLHF", "code": "0819K-RLHF", "platform": "finch"},
-        {"sheet": "0902F", "code": "0902F", "platform": "elixir"},
+        {"sheet": "0825E", "code": "0825E", "platform": "kayak"},
+        {"sheet": "0901B", "code": "0901B", "platform": "ibex"},
+        {"sheet": "0819K-RLHF", "code": "0819K-RLHF", "platform": "lanyard"},
+        {"sheet": "0902F", "code": "0902F", "platform": "juncture"},
     ],
 }
 
@@ -105,7 +105,7 @@ MISSING_MODEL_RATING = str(_CONFIG.get("missing_model_rating") or "不合格")
 def sheet_model_label(sheet_name: str) -> str:
     """Return the Feishu audit-reason label with the Ark platform codeName.
 
-    Example: ``0825E`` -> ``0825E（harpoon）``. Unknown sheet names
+    Example: ``0825E`` -> ``0825E（kayak）``. Unknown sheet names
     are returned unchanged so other periods keep their original prefixes.
     """
     name = str(sheet_name or "").strip()

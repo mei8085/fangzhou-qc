@@ -164,7 +164,7 @@ def opening_prefix(text: str, n: int) -> str:
 
 
 def strip_audit_model_prefix(line: str) -> str:
-    """Strip a model/platform prefix such as ``0825E（harpoon）：``."""
+    """Strip a model/platform prefix such as ``0825E（kayak）：``."""
     return MODEL_AUDIT_PREFIX.sub("", str(line or "").strip(), count=1).strip()
 
 

@@ -1609,7 +1609,7 @@ async function discoverSession(opts) {
   const taskId = opts['task-id'];
   const runId = opts['run-id'];
   if (!taskId || !runId) throw new Error('discover-session requires --task-id and --run-id');
-  const projectId = Number(opts.project || cfg?.project_id || 326);
+  const projectId = Number(opts.project || cfg?.project_id || 383);
   const outDir = path.resolve(opts['tasks-dir'] || path.join(REPO_ROOT, 'tasks'), String(taskId), opts['output-subdir'] || 'ark_g1', `session_discovery_${sanitize(runId)}`);
   ensureDir(outDir);
   const browser = await chromium.launch({ headless: true });

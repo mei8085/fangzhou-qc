@@ -11,7 +11,7 @@
  *
  * Usage:
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397
- *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 7841 --only harpoon
+ *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 9046 --only kayak
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397 --dry-run
  *   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id 6397 --headed
  */

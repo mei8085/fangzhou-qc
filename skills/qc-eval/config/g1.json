@@ -1,17 +1,17 @@
 {
-  "period": "44期",
-  "project_id": 326,
-  "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/326/task/7841",
+  "period": "45期",
+  "project_id": 383,
+  "project_url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/383/task/9046",
   "chrome_profile": "Profile 4",
   "chrome_profile_label": "quan-134",
-  "task_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/326/task/{taskId}",
-  "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/326/review/{taskModelRunId}?mode=audit",
+  "task_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/383/task/{taskId}",
+  "audit_url_template": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/383/review/{taskModelRunId}?mode=audit",
   "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
   "audit_form_fill_script": "skills/qc-eval/scripts/fill_g1_audit_form.js",
-  "source_xlsx": "docs/44.xlsx",
+  "source_xlsx": "docs/45.xlsx",
   "source_sheet": "Sheet1",
-  "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=vD6HYi",
-  "feishu_sheet_id": "vD6HYi",
+  "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=xDbmHs",
+  "feishu_sheet_id": "xDbmHs",
   "allow_missing_models": true,
   "missing_model_rating": "不合格",
   "feishu_dirty_tag_options": [
@@ -30,22 +30,22 @@
     {
       "sheet": "0825E",
       "code": "0825E",
-      "platform": "harpoon"
+      "platform": "kayak"
     },
     {
       "sheet": "0901B",
       "code": "0901B",
-      "platform": "gazelle"
+      "platform": "ibex"
     },
     {
       "sheet": "0819K-RLHF",
       "code": "0819K-RLHF",
-      "platform": "finch"
+      "platform": "lanyard"
     },
     {
       "sheet": "0902F",
       "code": "0902F",
-      "platform": "elixir"
+      "platform": "juncture"
     }
   ]
 }

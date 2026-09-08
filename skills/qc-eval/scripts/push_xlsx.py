@@ -14,9 +14,9 @@ from tasks/<TASK_ID>/qc_cells.json after the rebuild.
 
 Usage:
     push_xlsx.py <TASK_ID> [<TASK_ID> ...]
-        [--source <repo>/docs/44.xlsx]
+        [--source <repo>/docs/45.xlsx]
         [--sheet "Sheet1"]
-        [--period 44期]
+        [--period 45期]
 """
 
 from __future__ import annotations
