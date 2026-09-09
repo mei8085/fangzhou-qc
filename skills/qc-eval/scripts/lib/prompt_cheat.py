@@ -75,6 +75,14 @@ NEG_ADD_QUOTA = re.compile(
     re.I,
 )
 
+# Limits on a single read or result size constrain batch volume; they do not
+# require the model to accumulate tool-call rounds. Keep these distinct from
+# lower-bound round quotas such as "at least 450 tool calls".
+UPPER_BOUND = re.compile(
+    r"(?:≤|<=|不超过|不多于|至多|最多|上限).{0,12}" + NUMBER,
+    re.I,
+)
+
 HIT_PATTERNS = [
     re.compile(ROUND_NOUN + r".{0,24}" + QUOTA_VERB + r".{0,16}" + NUMBER, re.I),
     re.compile(QUOTA_VERB + r".{0,16}" + NUMBER + r".{0,12}" + ROUND_NOUN, re.I),
@@ -191,12 +199,14 @@ def _line_hits(line: str) -> list[str]:
     if not text or _line_is_negative(text):
         return []
     hits: list[str] = []
-    for pattern in HIT_PATTERNS:
-        match = pattern.search(text)
-        if match:
-            snippet = match.group(0).strip()
-            if snippet and snippet not in hits:
-                hits.append(snippet)
+    for clause in re.split(r"[;；。]", text):
+        for pattern in HIT_PATTERNS:
+            for match in pattern.finditer(clause):
+                snippet = match.group(0).strip()
+                if UPPER_BOUND.search(snippet):
+                    continue
+                if snippet and snippet not in hits:
+                    hits.append(snippet)
     return hits
 
 
@@ -356,6 +366,13 @@ def self_test() -> list[str]:
     expect("business-count", "- 异常次数 > 10 次：红色标签", False)
     expect("business-retries", "重试次数 > 10 次时告警", False)
     expect("upper-bound", "工具调用次数 ≤ 100", False)
+    expect("mixed-upper-quota", "Read 不超过300行；工具调用次数必须达到450次", True)
+    expect("same-pattern-after-upper", "ToolUse必须≤300行；工具调用次数必须达到450次", True)
+    expect(
+        "read-result-limit",
+        "PreToolUse：Read 必须显式使用 limit 参数且不超过300行；超过3个动作则拒绝。",
+        False,
+    )
     expect("clean-task", "基于订单明细分析退款率，并输出可执行建议。", False)
     expect("complexity-no-quota", "需要多步骤规划、工具协作和验证。", False)
     expect("one-tool-call", "`sessionToolCalls` 中有至少一个工具调用（Agent 确实在工作）", False)

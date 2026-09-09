@@ -90,6 +90,14 @@ async function main() {
   const consoleLog = [];
   page.on('console', (m) => consoleLog.push(`[${m.type()}] ${m.text()}`));
   page.on('pageerror', (e) => consoleLog.push(`[pageerror] ${e.message}`));
+  page.on('response', async (response) => {
+    if (response.status() < 400) return;
+    const url = new URL(response.url());
+    consoleLog.push(`[http ${response.status()}] ${url.pathname}${url.search}`);
+    if (url.pathname.startsWith('/api/')) {
+      try { consoleLog.push((await response.text()).slice(0, 2000)); } catch (_) {}
+    }
+  });
 
   const base = args['vue-url'].replace(/\/$/, '');
   const results = [];
@@ -121,6 +129,12 @@ async function main() {
       for (const step of r.steps ?? []) await runStep(page, step);
       if (r.wait_for) await waitFor(page, r.wait_for);
       if (r.wait_ms) await page.waitForTimeout(r.wait_ms);
+      consoleLog.push(`[route ${r.name}] ${page.url()}`);
+      if (routesCfg.audit_body) {
+        const visibleText = await page.locator('body').innerText();
+        consoleLog.push(`[visible text ${r.name}] ${visibleText.replace(/\s+/g, ' ').slice(0, 2000)}`);
+        consoleLog.push(`[dashboard charts ${r.name}] ${await page.locator('.slice_container').count()}`);
+      }
       await page.screenshot({ path: outPath, fullPage: false });
       results.push({ route: r.name, ok: true, path: outPath });
     } catch (e) {

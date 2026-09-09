@@ -225,6 +225,12 @@ function isViteProject(entryDir) {
   }
 }
 
+function hasViteDevScript(scripts) {
+  // A project can depend on Vite while using `dev` for its backend watcher.
+  // Only treat `dev` as a Vite server when the script actually invokes Vite.
+  return /(?:^|\s)(?:npx\s+)?vite(?:\s|$)/.test(String((scripts || {}).dev || ''));
+}
+
 function readPackage(entryDir) {
   try {
     return JSON.parse(fs.readFileSync(path.join(entryDir, 'package.json'), 'utf8'));
@@ -237,7 +243,8 @@ function ensureProjectBin(entryDir) {
   // The tarball's node_modules ships dependency code but no .bin shims (Linux
   // symlinks were skipped during extraction on Windows). Run the package
   // manager once per entry dir to recreate the needed dev-server shim.
-  if (!isNextProject(entryDir) && !isViteProject(entryDir)) return;
+  const scripts = readPackage(entryDir).scripts || {};
+  if (!isNextProject(entryDir) && !(isViteProject(entryDir) && hasViteDevScript(scripts))) return;
   const binName = isNextProject(entryDir) ? 'next' : 'vite';
   const shim = process.platform === 'win32'
     ? path.join(entryDir, 'node_modules', '.bin', `${binName}.cmd`)
@@ -304,7 +311,7 @@ async function startDevServer(entryDir, port) {
   let cmd;
   if (isNextProject(entryDir)) {
     cmd = `npx next dev --port ${port}`;
-  } else if (isViteProject(entryDir) && scripts.dev) {
+  } else if (isViteProject(entryDir) && hasViteDevScript(scripts)) {
     cmd = `${pm.run} -- --port ${port} --strictPort`;
   } else {
     cmd = scripts.start ? `${pm.bin} start` : `${pm.bin} run dev`;
@@ -321,7 +328,7 @@ async function startDevServer(entryDir, port) {
   child.on('error', e => console.error('     spawn error:', e.message));
   let url;
   try {
-    url = isViteProject(entryDir)
+    url = isViteProject(entryDir) && hasViteDevScript(scripts)
       ? await waitForViteUrl(child)
       : await waitForHttpUrl(child, port);
   } catch (e) {
@@ -565,6 +572,14 @@ async function screenshotConfiguredModel(browser, label, code, entryDir, outDir,
         const input = page.locator(upload.selector || 'input[type="file"]').first();
         await input.setInputFiles(uploadPath);
         await page.waitForTimeout(step.action_delay_ms || 700);
+      }
+      if (Array.isArray(step.fill)) {
+        for (const field of step.fill) {
+          const locator = page.locator(field.selector).first();
+          await locator.waitFor({ state: 'visible', timeout: 10000 });
+          await locator.fill(String(field.value || ''));
+        }
+        await page.waitForTimeout(step.action_delay_ms || 300);
       }
       const selectors = [];
       if (step.click) selectors.push(step.click);

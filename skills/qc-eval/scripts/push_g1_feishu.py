@@ -19,6 +19,7 @@ import argparse
 import subprocess
 import sys
 import re
+import time
 from pathlib import Path
 
 import openpyxl
@@ -40,6 +41,7 @@ from lib.g1 import (  # noqa: E402
 )
 from lib.label_options import LABEL_HEADER  # noqa: E402
 from lib.concurrency import DirectoryLock  # noqa: E402
+from lib.ai_accuracy import inspect_ai_accuracy_schema  # noqa: E402
 from push_feishu import (  # noqa: E402
     READ_ONLY_HEADERS,
     build_push_targets,
@@ -151,6 +153,7 @@ def main() -> int:
     parser.add_argument("--local-xlsx", default=None)
     parser.add_argument("--dry-run", action="store_true", help="只打印计划写入，不实际写飞书")
     parser.add_argument("--write", action="store_true", help="实际写飞书；未指定时默认 dry-run")
+    parser.add_argument("--verify-only", action="store_true", help="只读核对远端质检文字与本地交付是否一致")
     parser.add_argument(
         "--confirm-user-instructed",
         action="store_true",
@@ -232,6 +235,14 @@ def main() -> int:
         int(meta["grid_properties"]["column_count"]),
         args.profile,
     )
+    ai_schema = inspect_ai_accuracy_schema(local_headers, remote_headers)
+    if ai_schema["errors"]:
+        print(
+            "错误：本地交付与飞书表的 AI 准确性字段结构不一致："
+            + "；".join(ai_schema["errors"]),
+            file=sys.stderr,
+        )
+        return 2
     if args.list_remote_headers:
         for header, col in sorted(remote_headers.items(), key=lambda item: item[1]):
             print(f"    {get_column_letter(col)}: {header!r}")
@@ -287,6 +298,26 @@ def main() -> int:
         image_map = matched
         print(f"    只上传截图: {', '.join(image_map.values())}")
     text_count = 0
+    if args.verify_only:
+        cols = [remote_headers[h] for h in text_headers if h in remote_headers]
+        values = read_range(token, args.sheet_id, f"A{row}:{get_column_letter(max(cols))}{row}", args.profile)
+        remote_values = values[0] if values else []
+        mismatches = 0
+        for header in text_headers:
+            if header in READ_ONLY_HEADERS or header == LABEL_HEADER:
+                continue
+            lcol, rcol = local_headers.get(header), remote_headers.get(header)
+            if not lcol or not rcol:
+                continue
+            expected = str(ws.cell(2, lcol).value or "").strip()
+            actual = cell_to_text(remote_values[rcol-1] if rcol <= len(remote_values) else None).strip()
+            if is_feishu_dirty_tag_header(header):
+                expected = "" if is_empty_feishu_dirty_tag(expected) else to_feishu_dirty_tag(expected)
+            if actual != expected:
+                mismatches += 1
+                print(f"     [mismatch] {get_column_letter(rcol)}{row} {header}: expected={expected!r} actual={actual!r}")
+        print(f"==> 只读核对完成：{mismatches} 个不一致单元格")
+        return 1 if mismatches else 0
     for header in text_headers:
         if header in READ_ONLY_HEADERS:
             continue
@@ -333,8 +364,21 @@ def main() -> int:
             text_count += 1
             continue
         if not text.strip():
-            if is_feishu_dirty_tag_related_header(header):
+            # Reinspection can withdraw a redline or restore verifiability.
+            # Empty QC-owned reasons must clear the previous remote verdict.
+            if is_feishu_dirty_tag_related_header(header) or header in {
+                "不可验证原因", "红线问题", "题目红线问题", "题目红线备注",
+            }:
                 clear_cell(token, args.sheet_id, cell_a1, args.profile, dry)
+                if not dry:
+                    # Feishu reads may briefly retain the value after a successful clear.
+                    for delay in (0, 0.5, 1, 2, 4):
+                        if delay:
+                            time.sleep(delay)
+                        if not read_remote_cell(token, args.sheet_id, cell_a1, args.profile):
+                            break
+                    else:
+                        raise ValueError(f"{cell_a1} 清除后回读仍有内容（已重试）")
                 text_count += 1
             continue
         write_cell(token, args.sheet_id, cell_a1, text, args.profile, dry)

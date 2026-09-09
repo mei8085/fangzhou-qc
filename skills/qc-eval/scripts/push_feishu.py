@@ -51,6 +51,8 @@ from openpyxl.utils import get_column_letter
 HERE = Path(__file__).resolve().parent
 SKILL_DIR = HERE.parent
 REPO_ROOT = SKILL_DIR.parent.parent
+sys.path.insert(0, str(HERE))
+from lib.ai_accuracy import ordered_ai_accuracy_headers  # noqa: E402
 
 DEFAULT_WIKI = "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=uBlwx4"
 DEFAULT_SHEET_ID = "uBlwx4"  # 38期 sheet
@@ -182,6 +184,7 @@ def build_push_targets(local_headers: dict[str, int]) -> tuple[list[str], dict[s
     text_headers.extend(h for h in _NORMAL_TASK_HEADERS if h in local_headers)
     text_headers.extend(h for h in _SUPPLIER_HEADERS if h in local_headers)
     text_headers.extend(h for h in _TEXT_HEADER_OPTIONAL if h in local_headers)
+    text_headers.extend(ordered_ai_accuracy_headers(local_headers))
 
     model_names: list[str] = []
     for h in local_headers:

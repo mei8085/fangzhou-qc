@@ -31,7 +31,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
@@ -116,6 +116,32 @@ def has_artificial_header(img: Image.Image) -> bool:
 _FRAME_PREFIX_RE = re.compile(r"^(.+?)_\d+_.+\.png$")
 
 
+def is_exact_horizontal_composite(p: Path, img: Image.Image) -> bool:
+    """Only exempt proven original-frame concatenations from the header heuristic."""
+    if not VERIFY_RE.match(p.name):
+        return False
+    model = p.name.removesuffix("_verify.png")
+    frames = sorted(f for f in p.parent.glob(f"{model}_*.png")
+                    if (m := _FRAME_PREFIX_RE.match(f.name)) and m.group(1) == model)
+    if not frames:
+        return False
+    sizes = []
+    for frame in frames:
+        with Image.open(frame) as source:
+            sizes.append(source.size)
+    if img.size != (sum(w for w, _ in sizes), max(h for _, h in sizes)):
+        return False
+    x = 0
+    for frame, (w, h) in zip(frames, sizes):
+        with Image.open(frame) as source:
+            if ImageChops.difference(img.crop((x, 0, x + w, h)).convert('RGB'), source.convert('RGB')).getbbox():
+                return False
+        if h < img.height and any(high != 0 for _, high in img.crop((x, h, x + w, img.height)).convert('RGB').getextrema()):
+            return False
+        x += w
+    return True
+
+
 def scan_task(task_id: str, threshold: float) -> list[str]:
     out_dir = REPO_ROOT / "delivery" / task_id / "screenshots"
     if not out_dir.exists():
@@ -130,7 +156,7 @@ def scan_task(task_id: str, threshold: float) -> list[str]:
     for p in pngs:
         try:
             with Image.open(p) as im:
-                if has_artificial_header(im):
+                if has_artificial_header(im) and not is_exact_horizontal_composite(p, im):
                     bad.append(f"{p.name}: artificial title/header band at top; crop the heading and keep only evidence")
         except Exception as e:  # noqa: BLE001
             bad.append(f"{p.name}: unreadable ({e})")

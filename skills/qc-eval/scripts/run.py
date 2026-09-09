@@ -32,7 +32,8 @@ Stage B — "emit" (runs when qc_cells.json exists):
     7. compose.py → screenshots/<COL>_verify.png
     8. blank/evidence/style guards
     9. push_xlsx.py → delivery/<ID>/<ID>.xlsx
-    10. selfcheck.py 校验写作口径
+    10. fill_ai_qc_accuracy.mjs（源表按模型数量包含完整字段时）→ 填充 AI 轨迹质检准确性
+    11. selfcheck.py 校验写作口径
 
 Safety / scope
 --------------
@@ -56,6 +57,7 @@ import openpyxl
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from lib.paths import REPO_ROOT, default_source_xlsx  # noqa: E402
+from lib.ai_accuracy import validate_ai_accuracy_headers  # noqa: E402
 
 TASKS_DIR = REPO_ROOT / "tasks"
 
@@ -133,6 +135,23 @@ def find_header_columns(ws, header_row: int) -> dict[str, int]:
         if isinstance(v, str) and v.strip():
             out[v.strip()] = c
     return out
+
+
+def ai_accuracy_enabled(source: Path, sheet: str) -> bool:
+    """Check the source table before invoking the optional AI-QC fill step."""
+    wb = openpyxl.load_workbook(source, read_only=True, data_only=True)
+    try:
+        if sheet in wb.sheetnames:
+            ws = wb[sheet]
+        elif len(wb.sheetnames) == 1:
+            ws = wb[wb.sheetnames[0]]
+        else:
+            raise RuntimeError(f"source sheet not found: {sheet!r}")
+        header_row = locate_header_row(ws)
+        headers = find_header_columns(ws, header_row)
+    finally:
+        wb.close()
+    return bool(validate_ai_accuracy_headers(headers)["enabled"])
 
 
 def extract_portal_url(source: Path, sheet: str) -> Path:
@@ -347,6 +366,11 @@ def emit_one(task_id: str, dry: bool, *, period: str, sheet: str, source: Path) 
             f"如需重推，先手动删除该文件"
         )
         return False
+    try:
+        ai_accuracy = ai_accuracy_enabled(source, sheet)
+    except RuntimeError as exc:
+        print(f"  [err] {exc}", file=sys.stderr)
+        return False
     kind = task_kind(task_id)
     try:
         _qc = json.loads(cells.read_text(encoding="utf-8-sig"))
@@ -370,6 +394,18 @@ def emit_one(task_id: str, dry: bool, *, period: str, sheet: str, source: Path) 
             return False
         if run_py("push_xlsx.py", task_id, "--source", str(source), "--sheet", sheet, dry=dry) != 0:
             return False
+        if ai_accuracy:
+            if run_node(
+                "fill_ai_qc_accuracy.mjs",
+                task_id,
+                "--source",
+                str(source),
+                "--sheet",
+                sheet,
+                "--write",
+                dry=dry,
+            ) != 0:
+                return False
         rc = run_py("selfcheck.py", task_id, dry=dry)
         if rc != 0:
             print(f"  emit 完成但 selfcheck 命中：请改 qc_cells.json 后重跑 emit")
@@ -439,6 +475,18 @@ def emit_one(task_id: str, dry: bool, *, period: str, sheet: str, source: Path) 
         return False
     if run_py("push_xlsx.py", task_id, "--source", str(source), "--sheet", sheet, dry=dry) != 0:
         return False
+    if ai_accuracy:
+        if run_node(
+            "fill_ai_qc_accuracy.mjs",
+            task_id,
+            "--source",
+            str(source),
+            "--sheet",
+            sheet,
+            "--write",
+            dry=dry,
+        ) != 0:
+            return False
     if period in PLATFORM_QC_PERIODS:
         # 28/33/34 期需要平台录入清单；26/29 期没有平台反馈质检 tab。
         if run_py("make_platform_qc.py", task_id, dry=dry) != 0:
@@ -556,4 +604,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -17,6 +17,7 @@ description: 45期方舟 coding 众测质检工作流。质检题目从本地 do
 
 - 本地源表：`docs/45.xlsx`（`docs/` 已 gitignore）。可用环境变量 `QC_SOURCE_XLSX` 或 `--source` 覆盖。
 - 源表不从飞书同步。飞书只作为交付回写目标。
+- AI 轨迹质检准确性字段按本地查题源表的模型数量动态启用：模型数量以源表中 `<模型>反馈质量（作业质量）` 列的实际数量为准，每个模型需要 `模型N质检结论是否准确` 和 `模型N判断原因` 两列；3/4/5 个模型分别对应 6/8/10 个字段。完整存在时必须填充，全部不存在时不得新增，部分存在、编号不连续或模型数量不匹配时按表结构错误停止。
 - 飞书交付表：`https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=xDbmHs`
 - sheet_id：`xDbmHs`
 - Chrome 默认个人资料：`quan-134`（磁盘目录 `Profile 4`）。`auth-from-chrome` 默认从该 Profile 导出方舟平台 cookie；如需临时改用其他 Profile，显式传 `--profile <Profile目录名>`。
@@ -336,17 +337,44 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 
 写完 `qc_cells.json` 后，未命中提示词轮次作弊的题目，只对下载按钮可用的模型按「复测启动与截图」本人现场出图，再进入下一步交付。下载按钮禁用的模型只使用任务详情「下载列表」截图，不打开轨迹、不静态走读、不启动产物；不要复用标注人截图，也不要跳过可下载模型的复测直接 `push_xlsx.py`。命中轮次作弊时验证截图已由 `check_prompt_cheat.py` 用提示词红框生成，直接进入交付。
 
-7. 生成本地交付物，并生成每个模型对应的平台质检填写文件。
+7. 生成本地交付 xlsx。
 
 ```bash
 python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 45期
-python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
-python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
 ```
 
 逐模型平台填写文件输出为 `delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md` 和 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`，字段名、选项与 `skills/qc-eval/config/g1_audit_form.json` 一致。用户明确要求填写平台质检表单时，用 `fill_g1_audit_form.js` 写入网页并只保存草稿；未下达该指令时不要打开审核页去改表单。表单字段为：请选择该任务的质量（高/中/低/不可用）、任务质量备注、请选择该用户的反馈质量（完全可用/部分可用/完全不可用）、反馈质量备注、审核理由、请选择脏数据标签。页面没有「非脏数据」按钮，不选标签即非脏数据。反馈质量备注按档位写 1～2 句，并用飞书档位词（高质量 / 合格 / 不合格）收束；审核理由写一句事实结论，通常必须用平台选项词（完全可用 / 部分可用 / 完全不可用）收束，禁止写「故高质量」「故合格」「反馈质量为高质量」。唯一例外是产物不可下载模型：反馈质量备注和审核理由都逐字填写 `产物不可下载，无法验证`。其他场景的审核理由抽出备注里的具体问题点即可，不复制完整备注；必须包含一个简短的产物/反馈事实总结，不要只写「过程 X 分、产物 X 分和产物实测情况一致，反馈完全可用」这类评分一致套话，也不要直接压缩复述反馈质量备注。需要特殊说明时，可在模型数据下写 `platform_audit_reason` 或 `audit_reason` 覆盖默认审核理由。脏数据标签按 `spec/Coding场景脏数据标签与标准.md` 判断后映射到页面选项；可在每个模型数据下写 `dirty_tag`。未写时填写文件输出「不选」。
 
-8. 填写平台质检表单必须听用户指令。用户明确要求“填写平台质检表单 / 保存草稿 / 写入网页质检”后，才把 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json` 填进 `projects/383/review/<taskModelRunId>?mode=audit` 右侧「质检」面板。脚本只改质检表单，并只点「保存草稿」。未作答模型没有审核页，脚本会记录跳过，不得伪造草稿。禁止点「提交审核」「打回」「返回列表」，禁止改「评测打分」、Session 轨迹、Workspace 或附件。提交必须留给人工检查后再点。
+8. 处理按模型数量动态生成的 AI 轨迹质检准确性字段。先检查本地查题源表的表头：
+
+- 源表有 N 个模型时，N 由源表中模型反馈质量列的实际数量确定，必须完整包含从 `模型1` 到 `模型N` 的 2N 个字段；例如 3 个模型为 6 列、4 个模型为 8 列、5 个模型为 10 列。每个模型一列“质检结论是否准确”和一列“判断原因”；`push_xlsx.py` 原样保留这些列，质检完成后必须填充。
+- 源表一个 AI 准确性字段都不包含时，不新增列、不生成答案文件，也不执行填充；旧表流程保持不变。
+- 源表只包含部分字段、模型位置不连续、任一模型缺少成对字段，或字段数量与模型数量不匹配时，视为表结构错误并停止，不猜测或补齐缺失列。
+
+平台采集的逐模型 `audit.json` 在 `aiQc.trajectoryResult` 下保存 `FeedbackGrade`、`Reason`、`TraceStats`、`Issues`、`DirtyLabels` 和 `IsDirty`，因此优先使用本地采集结果，不重复打开 AI 质检侧边栏。判断规则固定为：人工反馈质量为“合格”或“高质量”且 AI 质检为“合格”时，结论准确；人工与 AI 档位相同也为准确；人工与 AI 档位相反时为不准确，例如人工“不合格”、AI“合格”。表格各模型判断字段填写“是/否”，平台“人工准确性反馈”仍填写“准确/不准确”。答案文件中表格字段使用 `sheet_accuracy`、`sheet_reason`，平台字段使用 `platform_accuracy`、`platform_reason`；表格理由只简略说明人工判定为高质量或合格的事实依据，不写内部规则解释。AI 质检未完成时，表格固定填写“否”和“AI质检未完成”，不生成或更新平台反馈。将答案写入 `tasks/<TASK_ID>/ai_feedback_answers.json`，理由不超过 500 字；本地填充脚本按源表模型数量处理对应的 2N 个字段，无 AI 字段时安全跳过，字段不完整或数量不匹配时直接报错；它读取 `qc_cells.json` 与 `audit.json` 自动计算并校验“是/否”，不接受与该规则冲突的手工判断。标准顺序是在 `push_xlsx.py` 之后先运行准确性脚本，再运行 `selfcheck.py`：
+
+```bash
+node skills/qc-eval/scripts/fill_ai_qc_accuracy.mjs --task-id <任务ID>
+node skills/qc-eval/scripts/fill_ai_qc_accuracy.mjs --task-id <任务ID> --write
+python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
+```
+
+启用 AI 准确性字段的任务还需生成平台质检填写文件：
+
+```bash
+python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
+```
+
+对于启用 AI 准确性字段的任务，填充本地 xlsx 后再按用户授权回写飞书；只有用户明确要求更新平台反馈时才使用 `probe_g1_ai_feedback.js --update`。平台更新必须执行“重新编辑 → 修改准确/不准确和理由 → 点击提交反馈”，随后刷新页面重新读取并比对服务器保存值；只有回读准确性和理由都一致才算成功。AI 质检未完成的模型只写飞书“否 / AI质检未完成”，不得更新平台。该脚本只允许修改“准确/不准确”、反馈理由并点击“提交反馈”，不得改平台质检表单、评测打分或其他页面：
+
+```bash
+node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> --no-screenshots
+node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> \
+  --update --answers tasks/<TASK_ID>/ai_feedback_answers.json \
+  --confirm-user-instructed
+```
+
+9. 填写平台质检表单必须听用户指令。用户明确要求“填写平台质检表单 / 保存草稿 / 写入网页质检”后，才把 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json` 填进 `projects/383/review/<taskModelRunId>?mode=audit` 右侧「质检」面板。脚本只改质检表单，并只点「保存草稿」。未作答模型没有审核页，脚本会记录跳过，不得伪造草稿。禁止点「提交审核」「打回」「返回列表」，禁止改「评测打分」、Session 轨迹、Workspace 或附件。提交必须留给人工检查后再点。
 
 ```bash
 node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>
@@ -355,7 +383,7 @@ node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>
 # node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID> --dry-run
 ```
 
-9. 回写飞书必须听用户指令：常规质检流程到 dry-run 为止，不得主动上传或回写飞书。只有用户明确要求“上传/回写/写入飞书”后，才执行 write；执行顺序仍必须先 dry-run，再 write。
+10. 回写飞书必须听用户指令：常规质检流程到 dry-run 为止，不得主动上传或回写飞书。只有用户明确要求“上传/回写/写入飞书”后，才执行 write；执行顺序仍必须先 dry-run，再 write。
 
 ```bash
 python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
@@ -402,6 +430,8 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-us
 - 测完执行 `python3 skills/qc-eval/scripts/u03l.py down <任务ID>`，需要时再 `python3 skills/qc-eval/scripts/tunnel.py close <任务ID>`，不要留残余容器或 SSH 隧道。
 
 ### 截图合格线
+
+Markdown 文档产物可用 `node skills/qc-eval/scripts/screenshot_markdown.js <任务ID>` 补充原文渲染截图（需要 `marked` 与 Playwright）。在任务目录 `screenshot_markdown.json` 的 `documents` 中配置 `source`（相对 `extracted/` 的原始 Markdown 路径）和 `name`（如 `0825E_04_markdown`）；脚本保存全文浏览器截图及来源哈希，不改写产物正文。配置顶层 `full_page: false` 时只截第一屏（1200×1400），用 `00_markdown` 编号可排在合成图第一张，再用 `compose.py` 横向合成。
 
 跑不通不要交白屏。换成报错终端、浏览器 console 或出错源码截图。`delivery/<TASK_ID>/screenshots/` 只留有效 PNG 和横向拼接的 `<模型>_verify.png`。`blank_guard.py` / `evidence_guard.py` / `screenshot_style_guard.py` 命中即不合格。
 
@@ -513,7 +543,12 @@ python3 skills/qc-eval/scripts/render_missing_model_evidence.py <任务ID>
 # python3 skills/qc-eval/scripts/verify_fullstack.py <任务ID>
 python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 45期
 python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
+# AI 轨迹质检准确性字段：按源表模型数量动态检查，完整存在时先预览，确认后写入本地 xlsx：
+node skills/qc-eval/scripts/fill_ai_qc_accuracy.mjs --task-id <任务ID>
+node skills/qc-eval/scripts/fill_ai_qc_accuracy.mjs --task-id <任务ID> --write
 python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
+# AI 质检侧边栏只读采集：
+node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> --no-screenshots
 # 用户明确要求填写平台质检表单后才可执行；只保存草稿，不提交：
 node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>
 python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run

@@ -38,6 +38,7 @@ from lib.paths import REPO_ROOT, default_g1_source_xlsx, default_38_source_xlsx 
 from lib.writing_style import compose_feedback_note  # noqa: E402
 from lib.g1 import PERIOD, SOURCE_SHEET, to_feishu_dirty_tag  # noqa: E402
 from lib.label_options import LABEL_HEADER, resolve_task_label  # noqa: E402
+from lib.ai_accuracy import validate_ai_accuracy_headers as validate_dynamic_ai_accuracy_headers  # noqa: E402
 
 DEFAULT_SOURCE = default_g1_source_xlsx()
 DEFAULT_SHEET = SOURCE_SHEET
@@ -93,7 +94,6 @@ PER_MODEL_SUFFIXES = {
     "脏数据标签": "dirty_tag",
     "脏数据标签理由": "dirty_tag_reason",
 }
-
 # 29 期表头示例：
 #   '30B-0616E-OPD反馈质量（作业质量）', '30B-Merge-0618B-AA反馈质量（作业质量）', ...
 # 28 期表头示例：
@@ -416,6 +416,18 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
             print(f"     [warn] qc_cells.sheet.models 里没有 {model!r}")
 
 
+def validate_ai_accuracy_headers(headers: dict[str, int]) -> bool:
+    """Return whether the source/delivery table enables dynamic AI fields.
+
+    The fields are owned by the local query table. Do not invent them in a
+    period whose source table does not contain the complete set.
+    """
+    info = validate_dynamic_ai_accuracy_headers(headers)
+    if not info["enabled"]:
+        return False
+    return True
+
+
 def push_one(task_id: str, source: Path, sheet_name: str, tasks_dir: Path) -> bool:
     cells_path = tasks_dir / task_id / "qc_cells.json"
     if not cells_path.exists():
@@ -458,6 +470,7 @@ def push_one(task_id: str, source: Path, sheet_name: str, tasks_dir: Path) -> bo
     out_wb.remove(out_wb.active)
     out_ws = build_delivery_ws(src_ws, sheet_name, header_row, task_row, out_wb)
     headers = find_header_columns(out_ws, 1)
+    validate_ai_accuracy_headers(headers)
     refresh_machine_qc_validation(out_ws, headers)
     fill_one(out_ws, headers, task_id, qc, 2)
 

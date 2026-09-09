@@ -41,6 +41,7 @@ from lib.g1 import (  # noqa: E402
     MISSING_MODEL_RATING,
     PERIOD,
     PLATFORM_CODES,
+    SOURCE_SHEET,
     SHEET_MODELS,
     is_empty_feishu_dirty_tag,
     is_feishu_dirty_tag_header,
@@ -49,6 +50,8 @@ from lib.g1 import (  # noqa: E402
 )
 from lib.label_options import LABEL_HEADER, label_options  # noqa: E402
 from lib.prompt_cheat import is_prompt_cheat_task  # noqa: E402
+from lib.ai_accuracy import inspect_ai_accuracy_schema  # noqa: E402
+from lib.paths import default_g1_source_xlsx  # noqa: E402
 
 # ---------- 表头 → reviewer 列定位 ----------
 
@@ -79,6 +82,9 @@ _PLATFORM_AUDIT_HEADER = "一次质检平台审核理由（按模型）"
 _PROMPT_QUALITY_NOTE_HEADER = "题目质量说明"
 _HIGH_QUALITY_FEEDBACK_VALUE = "高质量"
 _CURRENT_PERIODS = {PERIOD}
+_AI_ACCURACY_REASON_RE = re.compile(
+    r"AI.*(?:未直接判断|无法判断).*产物|不影响其对轨迹反馈"
+)
 
 TASK_REDLINE_OPTIONS = {
     "毫无意义的题目",
@@ -885,6 +891,86 @@ def category_correct_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]
     return {}
 
 
+def source_headers_for_ai_accuracy() -> dict[str, int]:
+    source = default_g1_source_xlsx()
+    if not source.exists():
+        raise RuntimeError(f"source xlsx not found: {source}")
+    wb = openpyxl.load_workbook(source, read_only=True, data_only=True)
+    try:
+        if SOURCE_SHEET in wb.sheetnames:
+            worksheets = [wb[SOURCE_SHEET]]
+        elif len(wb.sheetnames) == 1:
+            worksheets = [wb.worksheets[0]]
+        else:
+            raise RuntimeError(f"source sheet not found: {SOURCE_SHEET!r}")
+        for ws in worksheets:
+            for row in ws.iter_rows(
+                min_row=1,
+                max_row=min(ws.max_row, 3),
+                values_only=True,
+            ):
+                if any(str(value or "").strip() == "任务ID" for value in row):
+                    return {
+                        str(value).strip(): index
+                        for index, value in enumerate(row, start=1)
+                        if isinstance(value, str) and value.strip()
+                    }
+    finally:
+        wb.close()
+    raise RuntimeError("source xlsx has no header row containing 任务ID")
+
+
+def ai_accuracy_issues(
+    ws,
+    headers: dict[str, int],
+    period: str,
+) -> dict[int, list[str]]:
+    """Validate source-owned, dynamic AI trajectory-QC accuracy fields."""
+    if period != PERIOD:
+        return {}
+    try:
+        source_headers = source_headers_for_ai_accuracy()
+        schema = inspect_ai_accuracy_schema(source_headers, headers)
+    except RuntimeError as exc:
+        return {
+            1: [f"ai-accuracy-source-schema-error:{exc}"],
+        }
+    if schema["errors"]:
+        present = schema["target"].get("headers") or []
+        anchor = headers[present[0]] if present else 1
+        return {
+            anchor: [
+                "ai-accuracy-header-set-incomplete:" +
+                "；".join(schema["errors"])
+            ]
+        }
+
+    bad: dict[int, list[str]] = {}
+    for position in schema["target"]["positions"]:
+        pair = schema["target"]["pairs"][position]
+        accuracy_header = pair["accuracy"]
+        reason_header = pair["reason"]
+        accuracy_col = headers[accuracy_header]
+        reason_col = headers[reason_header]
+        accuracy = cell_text(ws, accuracy_col)
+        reason = cell_text(ws, reason_col)
+        if accuracy not in {"是", "否"}:
+            bad.setdefault(accuracy_col, []).append("ai-accuracy-must-be-是-or-否")
+        if not reason:
+            bad.setdefault(reason_col, []).append("ai-accuracy-reason-required")
+        elif len(reason) > 500:
+            bad.setdefault(reason_col, []).append("ai-accuracy-reason-too-long")
+        if accuracy != "否" and reason == "AI质检未完成":
+            bad.setdefault(accuracy_col, []).append(
+                "ai-incomplete-qc-must-use-否"
+            )
+        if _AI_ACCURACY_REASON_RE.search(reason):
+            bad.setdefault(reason_col, []).append(
+                "ai-accuracy-reason-contains-internal-rule"
+            )
+    return bad
+
+
 def label_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]:
     col = headers.get(LABEL_HEADER)
     if not col:
@@ -1234,6 +1320,8 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
     for col, issues in normal_task_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in category_correct_issues(ws, headers).items():
+        bad.setdefault(col, []).extend(issues)
+    for col, issues in ai_accuracy_issues(ws, headers, period).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in label_issues(ws, headers).items():
         bad.setdefault(col, []).extend(issues)
