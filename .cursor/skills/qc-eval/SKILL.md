@@ -1,10 +1,10 @@
 ---
 name: qc-eval
 description: >-
-  45期 Fangzhou coding crowdtest QC workflow. Use when the user asks to
-  质检, review a 任务ID, collect Ark platform runs from project 383, write
+  g4-new期 Fangzhou coding crowdtest QC workflow. Use when the user asks to
+  质检, review a 任务ID, collect Ark platform runs from project 317, write
   qc_cells.json, generate delivery xlsx, selfcheck, fill the Ark QC form
-  as a draft, or push to Feishu sheet=xDbmHs. Canonical instructions live
+  as a draft, or push to Feishu sheet=wzNDiG. Canonical instructions live
   in skills/qc-eval/SKILL.md; this
   file is the Cursor project-skill entry only.
 ---
@@ -19,4 +19,6 @@ description: >-
 
 质量备注按档位写 1～2 句：高质量用「和产物实测情况一致，评分正确」；合格写清和产物实际情况一致或不符合的点，并点名哪一项评分偏高或偏低；不合格点名红线、完全不可信，并按脏数据标签补一句。归因标签与维度备注必须对照，标签错选不能定高质量。同一题可共用开头；连续几题换句首。飞书用高质量 / 合格 / 不合格，审核理由用完全可用 / 部分可用 / 完全不可用。细则见权威 SKILL「写作约束」。
 
-跨平台约定写在权威 SKILL 的「运行环境」一节：源表默认 `docs/45.xlsx`，Python 用 `python3`，Ark 登录默认用 Chrome 的 `quan-134` 个人资料（磁盘目录 `Profile 4`）执行 `auth-from-chrome`，失败再 `auth-login`。复测是本机起服务还是 SSH 到 `u03l` 用 Docker，以权威 SKILL 的「复测启动与截图」为准。
+跨平台约定写在权威 SKILL 的「运行环境」一节：源表默认 `docs/g4.xlsx`，Python 用 `python3`，Ark 登录默认用 Chrome 的 `quan-134` 个人资料（磁盘目录 `Profile 4`）执行 `auth-from-chrome`，失败再 `auth-login`。复测是本机起服务还是 SSH 到 `u03l` 用 Docker，以权威 SKILL 的「复测启动与截图」为准。
+
+AI 质检反馈新题直接填写准确性和理由后提交，不依赖不可点击的「重新编辑」。

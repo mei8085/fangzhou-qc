@@ -1,11 +1,12 @@
 {
-  "period": "45期",
+  "period": "g4-new期",
   "header": "label",
   "source": [
     "/Users/quan/Downloads/1.png",
     "/Users/quan/Downloads/2.png"
   ],
   "options": [
+    "Coding / 功能与系统开发",
     "Coding Agent / Bug fix",
     "Coding Agent / Bug Fix",
     "Coding Agent / 部署与运维",

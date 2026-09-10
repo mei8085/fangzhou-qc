@@ -1,49 +1,48 @@
 ---
 name: qc-eval
-description: 45期方舟 coding 众测质检工作流。质检题目从本地 docs/45.xlsx 按任务ID读取，不从飞书同步源表。标注与产物从 Ark 平台 project 383 按任务ID搜索，采集 0825E/kayak、0901B/ibex、0819K-RLHF/lanyard、0902F/juncture。交付回写飞书 sheet=xDbmHs。允许部分题目只完成了部分模型，未作答模型按不合格交付。
+description: g4-new期方舟 coding 众测质检工作流。质检题目从本地 docs/g4.xlsx 按任务ID读取，不从飞书同步源表。标注与产物从 Ark 平台 project 317 按任务ID搜索，采集 gazelle、finch、elixir。交付回写飞书 sheet=wzNDiG。允许部分题目只完成了部分模型，未作答模型按不合格交付。
 ---
 
-# 方舟 coding 众测质检 - 45期工作流技能
+# 方舟 coding 众测质检 - g4-new期工作流技能
 
 唯一权威说明文件。`CLAUDE.md`、`AGENTS.md`、`.cursor/rules/qc-eval.mdc`、`.cursor/skills/qc-eval/SKILL.md` 只做入口指引，不复制流程。
 
 配套规范：
 
-- 新规则整理：`spec/36期质检新规则.md`（45期继续沿用这套质量口径）
+- 新规则整理：`spec/36期质检新规则.md`（g4-new期继续沿用这套质量口径）
 - 脏数据标签与标准：`spec/Coding场景脏数据标签与标准.md`（平台反馈质检的脏数据标签按此执行）
 - 兼容入口：`spec/方舟coding众测质检流程及规范.md` 已更新为同一套质量规则
 
-## 45期默认配置
+## g4-new期默认配置
 
-- 本地源表：`docs/45.xlsx`（`docs/` 已 gitignore）。可用环境变量 `QC_SOURCE_XLSX` 或 `--source` 覆盖。
+- 本地源表：`docs/g4.xlsx`（`docs/` 已 gitignore）。可用环境变量 `QC_SOURCE_XLSX` 或 `--source` 覆盖。
 - 源表不从飞书同步。飞书只作为交付回写目标。
 - AI 轨迹质检准确性字段按本地查题源表的模型数量动态启用：模型数量以源表中 `<模型>反馈质量（作业质量）` 列的实际数量为准，每个模型需要 `模型N质检结论是否准确` 和 `模型N判断原因` 两列；3/4/5 个模型分别对应 6/8/10 个字段。完整存在时必须填充，全部不存在时不得新增，部分存在、编号不连续或模型数量不匹配时按表结构错误停止。
-- 飞书交付表：`https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=xDbmHs`
-- sheet_id：`xDbmHs`
+- 飞书交付表：`https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=wzNDiG`
+- sheet_id：`wzNDiG`
 - Chrome 默认个人资料：`quan-134`（磁盘目录 `Profile 4`）。`auth-from-chrome` 默认从该 Profile 导出方舟平台 cookie；如需临时改用其他 Profile，显式传 `--profile <Profile目录名>`。
 - 本地任务目录名：必须使用源表 `任务ID`，例如 `6397`
-- Ark 平台项目：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/383/task/7841`
-- 任务详情：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/383/task/<任务ID>`
+- Ark 平台项目：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/317/task/7455`
+- 任务详情：`https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/317/task/<任务ID>`
 - 平台检索：以任务ID搜索。任务详情页首轮 Prompt 下的「上传产物」来自任务详情 `attachments`；它与模型侧「模型运行」/「下载列表」/Workspace 是两个独立数据源，不能用模型下载列表是否为空推断首轮上传产物是否存在。下载列表走 `CaseBffV1CrowdtestTaskModelWorkspaceDownloadLatestList`。
 - 模型对应：
 
 | 表头模型 | 代号 | 平台 codeName |
 | --- | --- | --- |
-| 0825E | 0825E | kayak |
-| 0901B | 0901B | ibex |
-| 0819K-RLHF | 0819K-RLHF | lanyard |
-| 0902F | 0902F | juncture |
+| gazelle | gazelle | gazelle |
+| finch | finch | finch |
+| elixir | elixir | elixir |
 
-- 45期允许部分题目只有部分预期模型运行。配置 `allow_missing_models=true` 只放行“预期模型缺失”，若出现未配置的额外模型仍停止采集。缺失模型必须在 `model_map.json` 标记 `missing=true`，飞书反馈质量填“不合格”，脏数据标签填 `用户问题:敷衍恶意打分`；因无 `taskModelRunId`，不得伪造平台审核页或草稿。
+- g4-new期允许部分题目只有部分预期模型运行。配置 `allow_missing_models=true` 只放行“预期模型缺失”，若出现未配置的额外模型仍停止采集。缺失模型必须在 `model_map.json` 标记 `missing=true`，飞书反馈质量填“不合格”，脏数据标签填 `用户问题:敷衍恶意打分`；因无 `taskModelRunId`，不得伪造平台审核页或草稿。
 
 - 配置文件：`skills/qc-eval/config/g1.json`
-- 任务类型选项：`skills/qc-eval/config/g1_label_options.json`。45期源表 `label` 为空时，必须从该文件 10 个选项中选择；未在 `qc_cells.json` 显式填写时，交付脚本按任务名和提示词做启发式推断。
-- 平台质检表单模版：`skills/qc-eval/config/g1_audit_form.json`（适用于 project 383；逐模型审核页由采集到的 `taskModelRunId` 动态生成）
+- 任务类型选项：`skills/qc-eval/config/g1_label_options.json`。g4-new期源表 `label` 为空时，必须从该文件 10 个选项中选择；未在 `qc_cells.json` 显式填写时，交付脚本按任务名和提示词做启发式推断。
+- 平台质检表单模版：`skills/qc-eval/config/g1_audit_form.json`（适用于 project 317；逐模型审核页由采集到的 `taskModelRunId` 动态生成）
 - 质检后填写文件：`delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md` 与 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`
 - 平台质检表单回填（只保存草稿）：`node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>`
 - Ark 平台采集脚本：`node skills/qc-eval/scripts/fetch_g1_platform.js`
 - 本地任务探测：`python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id <任务ID>`
-- 交付 xlsx：`python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 45期`
+- 交付 xlsx：`python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period g4-new期`
 - 飞书回写：默认只允许执行 `python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run` 预检；只有用户明确指令“上传/回写/写入飞书”后，才允许执行带 `--write` 的命令。
 
 ## 多 Agent 并发约束
@@ -112,7 +111,7 @@ node skills/qc-eval/scripts/fetch_g1_platform.js discover-session --task-id 7972
 
 ## 新规则口径
 
-45期以用户提供的新规则为准，不沿用更早期历史口径。质量判断仍按 `spec/36期质检新规则.md`。
+g4-new期以用户提供的新规则为准，不沿用更早期历史口径。质量判断仍按 `spec/36期质检新规则.md`。
 
 ### 出题质量
 
@@ -144,7 +143,7 @@ node skills/qc-eval/scripts/fetch_g1_platform.js discover-session --task-id 7972
 | 合格 | 打分大体合理但存在部分偏差或不完善；或打分、备注、佐证、归因标签有明显问题但未触发红线。 |
 | 不合格 | 反馈完全不可信，或触发红线规则。 |
 
-45期飞书列“反馈质量（作业质量）”下拉只有 `高质量`、`合格`、`不合格` 三个选项，禁止写 `红线`。若模型反馈触发反馈质量红线或脏数据标签，该模型“反馈质量（作业质量）”填 `不合格`；题目红线写到“红线问题”；逐模型飞书“脏数据标签”必须写成下拉原文，例如 `用户问题:敷衍恶意打分`。非脏数据时该列留空，不要填 `非脏数据`。
+g4-new期飞书列“反馈质量（作业质量）”下拉只有 `高质量`、`合格`、`不合格` 三个选项，禁止写 `红线`。若模型反馈触发反馈质量红线或脏数据标签，该模型“反馈质量（作业质量）”填 `不合格`；题目红线写到“红线问题”；逐模型飞书“脏数据标签”必须写成下拉原文，例如 `用户问题:敷衍恶意打分`。非脏数据时该列留空，不要填 `非脏数据`。
 
 特殊例外：每个已提交模型都必须先检查任务详情「下载列表」里的下载按钮。某模型按钮禁用时，该模型按“产物不可下载”处理：反馈质量填 `不合格`、脏数据标签填 `其他`，但这不是反馈红线；必须由下文按钮禁用闸门的机器可读结果和页面截图佐证。部分模型不可下载时，只给这些模型套模板，其余可下载模型仍按正常规则质检。
 
@@ -220,7 +219,7 @@ node skills/qc-eval/scripts/fetch_g1_platform.js collect --task-id <任务ID>
 python3 skills/qc-eval/scripts/extract_g1_workspaces.py <任务ID>
 ```
 
-`discover-download` 先截图并记录每个模型的按钮状态；`collect` 没有同任务的有效检查结果会拒绝继续。随后按任务ID搜索 project 383，拉取任务详情与页面提示词，下载并扫描首轮 Prompt 下的全部「上传产物」，把上传文本与页面提示词一起过「提示词轮次作弊闸门」。对下载按钮禁用的模型，采集只保留运行映射和填写模板所需的执行过程分、产物质量分，跳过评测附件、审核记录、Workspace Browser、轨迹、逐模型下载列表和 Workspace ZIP；对按钮可用的模型正常采集并质检。脚本默认 `--project 383`，本地目录与平台搜索都用同一个任务ID。输出目录为 `tasks/<任务ID>/ark_g1/`，并写 `tasks/<任务ID>/model_map.json`。
+`discover-download` 先截图并记录每个模型的按钮状态；`collect` 没有同任务的有效检查结果会拒绝继续。随后按任务ID搜索 project 317，拉取任务详情与页面提示词，下载并扫描首轮 Prompt 下的全部「上传产物」，把上传文本与页面提示词一起过「提示词轮次作弊闸门」。对下载按钮禁用的模型，采集只保留运行映射和填写模板所需的执行过程分、产物质量分，跳过评测附件、审核记录、Workspace Browser、轨迹、逐模型下载列表和 Workspace ZIP；对按钮可用的模型正常采集并质检。脚本默认 `--project 317`，本地目录与平台搜索都用同一个任务ID。输出目录为 `tasks/<任务ID>/ark_g1/`，并写 `tasks/<任务ID>/model_map.json`。
 
 首轮「上传产物」固定输出如下，和各模型目录内的 `workspace/`、`download_list.json` 分开：
 
@@ -236,7 +235,7 @@ python3 skills/qc-eval/scripts/extract_g1_workspaces.py <任务ID>
 
 采集在拿到 `task.json` 并完整下载、检查首轮「上传产物」之后，才会跑 `check_prompt_cheat.py --scan-only`。检查范围是页面提示词加上传产物中的 Markdown/文本。命中轮次作弊时**不再下载 workspace zip / 轨迹 / 逐模型下载列表**，也不要再去复测产物；前置的任务详情下载按钮截图仍保留。
 
-若平台 codeName 出现未配置的额外模型，脚本必须停住。缺少 `kayak,ibex,lanyard,juncture` 中的预期模型时，脚本按 `allow_missing_models` 配置继续，在 `model_map.json` 留下明确缺失记录，并用 `render_missing_model_evidence.py` 生成缺失证据。采集过程中若「下载列表」API 不一致，先停下来与人工核对，不要自行发明下载方式。
+若平台 codeName 出现未配置的额外模型，脚本必须停住。缺少 `gazelle,finch,elixir` 中的预期模型时，脚本按 `allow_missing_models` 配置继续，在 `model_map.json` 留下明确缺失记录，并用 `render_missing_model_evidence.py` 生成缺失证据。采集过程中若「下载列表」API 不一致，先停下来与人工核对，不要自行发明下载方式。
 
 5. **提示词轮次作弊闸门（必须在复测产物之前）**。不要先测完已作答模型产物再回头看提示词。脚本读取 `tasks/<任务ID>/prompt.md` 对应的合并材料；若 `task.json` 报告存在首轮上传文件，但 `task_uploads.json` 或文本检查结果缺失/不完整，脚本会直接报错，不得绕过。
 
@@ -309,7 +308,7 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
     "redline_issue": "",
     "redline_note": "",
     "models": {
-      "0825E": {
+      "gazelle": {
         "rating": "高质量",
         "note": "1～2 句。高质量：执行过程和产物质量分别与实际情况一致，评分正确。合格：写清一致或不符合的点，并点名哪一项评分偏高或偏低；过程分偏差必须写模型执行过程证据。不合格：点名红线并按脏数据标签写一句。同一题可共用开头，连续几题换句首。",
         "platform_audit_reason": "一句收束：完全可用 / 部分可用 / 完全不可用。不要写高质量、合格、不合格。",
@@ -321,7 +320,7 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 }
 ```
 
-`sheet.models` 的 key 必须是表头模型名：`0825E`、`0901B`、`0819K-RLHF`、`0902F`。未作答模型也必须写入，`rating` 填 `不合格`，备注明确写“未作答 / 平台没有运行记录”，`dirty_tag` 填 `用户问题:敷衍恶意打分`。
+`sheet.models` 的 key 必须是表头模型名：`gazelle`、`finch`、`elixir`。未作答模型也必须写入，`rating` 填 `不合格`，备注明确写“未作答 / 平台没有运行记录”，`dirty_tag` 填 `用户问题:敷衍恶意打分`。
 
 `sheet.models.<模型>.rating` 对应飞书列“反馈质量（作业质量）”，只能填 `高质量`、`合格`、`不合格`。触发反馈红线时也填 `不合格`，不要填 `红线`；红线原因在 `redline_issue` / `redline_note` 和逐模型 `dirty_tag` 中体现。`dirty_tag` 非脏数据时留空；有标签时必须写成飞书下拉原文。
 
@@ -329,7 +328,7 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 
 `prompt_quality` 对应飞书列“任务质量（题目质量）”，按题目本身的完整性、经济价值、评测价值和可验证性判断；它可以与“是否是高质量题目”不一致，例如题目本身为“高质量”，但模型反馈整体未达到高质量时，“是否是高质量题目”填“否”；题目本身为“合格”/“不合格”时，即使全部模型反馈质量为“高质量”，“是否是高质量题目”也填“否”。命中提示词轮次作弊时 `prompt_quality` 填 `不合格`，`sheet.prompt_cheat` 填 `true`。
 
-`label` 对应飞书列“label”。45期源表该列为空时，需要判断题目真实类型并填入，取值必须来自 `skills/qc-eval/config/g1_label_options.json`。推荐在 `qc_cells.json` 的 `sheet.label` 显式填写；若不填，`push_xlsx.py` 会在本地源表 label 为空时按任务名和提示词启发式补齐。源表 label 已有值时，本地交付不覆盖原值。
+`label` 对应飞书列“label”。g4-new期源表该列为空时，需要判断题目真实类型并填入，取值必须来自 `skills/qc-eval/config/g1_label_options.json`。推荐在 `qc_cells.json` 的 `sheet.label` 显式填写；若不填，`push_xlsx.py` 会在本地源表 label 为空时按任务名和提示词启发式补齐。源表 label 已有值时，本地交付不覆盖原值。
 
 `category_correct` 对应飞书列“分类是否正确”，必须填“是/否”；判断源表或补齐后的 `label` 是否与任务真实类型一致。
 
@@ -340,7 +339,7 @@ python3 skills/qc-eval/scripts/check_annotator_tags.py <任务ID>
 7. 生成本地交付 xlsx。
 
 ```bash
-python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 45期
+python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period g4-new期
 ```
 
 逐模型平台填写文件输出为 `delivery/<TASK_ID>/<TASK_ID>_model_qc_platform.md` 和 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json`，字段名、选项与 `skills/qc-eval/config/g1_audit_form.json` 一致。用户明确要求填写平台质检表单时，用 `fill_g1_audit_form.js` 写入网页并只保存草稿；未下达该指令时不要打开审核页去改表单。表单字段为：请选择该任务的质量（高/中/低/不可用）、任务质量备注、请选择该用户的反馈质量（完全可用/部分可用/完全不可用）、反馈质量备注、审核理由、请选择脏数据标签。页面没有「非脏数据」按钮，不选标签即非脏数据。反馈质量备注按档位写 1～2 句，并用飞书档位词（高质量 / 合格 / 不合格）收束；审核理由写一句事实结论，通常必须用平台选项词（完全可用 / 部分可用 / 完全不可用）收束，禁止写「故高质量」「故合格」「反馈质量为高质量」。唯一例外是产物不可下载模型：反馈质量备注和审核理由都逐字填写 `产物不可下载，无法验证`。其他场景的审核理由抽出备注里的具体问题点即可，不复制完整备注；必须包含一个简短的产物/反馈事实总结，不要只写「过程 X 分、产物 X 分和产物实测情况一致，反馈完全可用」这类评分一致套话，也不要直接压缩复述反馈质量备注。需要特殊说明时，可在模型数据下写 `platform_audit_reason` 或 `audit_reason` 覆盖默认审核理由。脏数据标签按 `spec/Coding场景脏数据标签与标准.md` 判断后映射到页面选项；可在每个模型数据下写 `dirty_tag`。未写时填写文件输出「不选」。
@@ -365,7 +364,7 @@ python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
 python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
 ```
 
-对于启用 AI 准确性字段的任务，填充本地 xlsx 后再按用户授权回写飞书；只有用户明确要求更新平台反馈时才使用 `probe_g1_ai_feedback.js --update`。平台更新必须执行“重新编辑 → 修改准确/不准确和理由 → 点击提交反馈”，随后刷新页面重新读取并比对服务器保存值；只有回读准确性和理由都一致才算成功。AI 质检未完成的模型只写飞书“否 / AI质检未完成”，不得更新平台。该脚本只允许修改“准确/不准确”、反馈理由并点击“提交反馈”，不得改平台质检表单、评测打分或其他页面：
+对于启用 AI 准确性字段的任务，填充本地 xlsx 后再按用户授权回写飞书；只有用户明确要求更新平台反馈时才使用 `probe_g1_ai_feedback.js --update`。平台更新新题时直接填写“准确/不准确”和理由，然后点击“提交反馈”，不依赖不可点击的“重新编辑”；只有已有反馈且输入控件确实 disabled 时，才尝试点击可用的“重新编辑”后再修改。提交后必须刷新页面重新读取并比对服务器保存值；只有回读准确性和理由都一致才算成功。AI 质检未完成的模型只写飞书“否 / AI质检未完成”，不得更新平台。该脚本只允许修改“准确/不准确”、反馈理由并点击“提交反馈”，不得改平台质检表单、评测打分或其他页面：
 
 ```bash
 node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> --no-screenshots
@@ -374,12 +373,12 @@ node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> \
   --confirm-user-instructed
 ```
 
-9. 填写平台质检表单必须听用户指令。用户明确要求“填写平台质检表单 / 保存草稿 / 写入网页质检”后，才把 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json` 填进 `projects/383/review/<taskModelRunId>?mode=audit` 右侧「质检」面板。脚本只改质检表单，并只点「保存草稿」。未作答模型没有审核页，脚本会记录跳过，不得伪造草稿。禁止点「提交审核」「打回」「返回列表」，禁止改「评测打分」、Session 轨迹、Workspace 或附件。提交必须留给人工检查后再点。
+9. 填写平台质检表单必须听用户指令。用户明确要求“填写平台质检表单 / 保存草稿 / 写入网页质检”后，才把 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json` 填进 `projects/317/review/<taskModelRunId>?mode=audit` 右侧「质检」面板。脚本只改质检表单，并只点「保存草稿」。未作答模型没有审核页，脚本会记录跳过，不得伪造草稿。禁止点「提交审核」「打回」「返回列表」，禁止改「评测打分」、Session 轨迹、Workspace 或附件。提交必须留给人工检查后再点。
 
 ```bash
 node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>
 # 只填一个模型、或先看填入结果不点保存：
-# node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID> --only kayak
+# node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID> --only gazelle
 # node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID> --dry-run
 ```
 
@@ -390,7 +389,7 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
 python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-user-instructed
 ```
 
-`push_g1_feishu.py` 会重新读取远端 `xDbmHs` 对应行的“任务”单元格，并与本地交付 xlsx 的任务名完全一致才允许写入。飞书 `label` 列只在远端单元格为空时写入；若远端已有值，即使本地交付 xlsx 有新 label 也跳过，避免覆盖人工或上游分类。飞书列“一次质检平台审核理由（按模型）”按模型分行，前缀为表头模型名加平台 codeName，例如 `0825E（kayak）：……`。“一次质检是否完成”由人工填写，脚本不得写入。非脏数据时不要给「脏数据标签」写入空字符串；脚本会清除单元格内容。已出现「数据无效」的空下拉格，重新 `--write` 即可按同样方式清掉。
+`push_g1_feishu.py` 会重新读取远端 `wzNDiG` 对应行的“任务”单元格，并与本地交付 xlsx 的任务名完全一致才允许写入。飞书 `label` 列只在远端单元格为空时写入；若远端已有值，即使本地交付 xlsx 有新 label 也跳过，避免覆盖人工或上游分类。飞书列“一次质检平台审核理由（按模型）”按模型分行，前缀为表头模型名加平台 codeName，例如 `gazelle（gazelle）：……`。“一次质检是否完成”由人工填写，脚本不得写入。非脏数据时不要给「脏数据标签」写入空字符串；脚本会清除单元格内容。已出现「数据无效」的空下拉格，重新 `--write` 即可按同样方式清掉。
 
 ## 复测启动与截图
 
@@ -404,6 +403,7 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-us
 | --- | --- | --- |
 | 提示词轮次作弊 | 不测产物 | `python3 skills/qc-eval/scripts/check_prompt_cheat.py <任务ID> --apply`。下载可用模型共用提示词截图；下载不可用模型仍用下载列表模板和截图 |
 | 模型下载按钮禁用 | 该模型不质检、不启动 | `python3 skills/qc-eval/scripts/apply_download_unavailable.py <任务ID> --apply`。仅该模型使用下载列表截图并套本地模板；同题按钮可用模型继续按下列产物形态复测 |
+| Android APK / Android 原生源码 | Android 模拟器；本机缺 SDK、模拟器或 Linux 工具链时可在 u03l 使用 | 先按下方「Android APK 运行截图」流程构建、安装和截取真实运行画面，再执行 `python3 skills/qc-eval/scripts/compose.py <任务ID>` |
 | Vue / Vite 前端，无强制后端栈 | 本机 dev server | `node skills/qc-eval/scripts/screenshot_vue.js <任务ID>`，再 `python3 skills/qc-eval/scripts/compose.py <任务ID>` |
 | Next.js / Node 前端，无强制后端栈，且用户明确要求尽量使用 u03l 或本机缺少 Chrome/FFmpeg/系统能力 | u03l 跑依赖、构建和验证；页面截图仍用本机截图脚本 | `python3 skills/qc-eval/scripts/verify_next_u03l.py <任务ID>` 生成 `tasks/<任务ID>/logs/<模型>-cli-u03l.log`，再按页面形态配置 `tasks/<任务ID>/screenshot_vue.json` 后执行 `node skills/qc-eval/scripts/screenshot_vue.js <任务ID>`、`python3 skills/qc-eval/scripts/compose_cli.py <任务ID> --no-web-from-attachments`、`python3 skills/qc-eval/scripts/compose.py <任务ID>` |
 | SPA MM030 FastAPI + Vite，SQLite 可本机闭环 | 本机 uvicorn + vite | `node skills/qc-eval/scripts/screenshot_spa_mm030.js <任务ID>`，再 `python3 skills/qc-eval/scripts/compose.py <任务ID>` |
@@ -421,6 +421,42 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-us
 
 缺路由文件时不要编造全栈验证，改走上表对应的本机截图路径。`verify_routes.json` 的格式见 `screenshot_fullstack_verify.js` 文件头。
 
+### Android APK 运行截图
+
+识别到 `AndroidManifest.xml`、Android 构建脚本或 `.apk` 时，下载按钮可用的每个已提交模型都必须尽量补充真实 APK 运行证据。Android 题不能只用源码、构建日志或静态走读图替代运行画面；下载按钮禁用、提示词轮次作弊或模型未作答时，仍按对应闸门处理，禁止绕过下载状态取包。
+
+1. **确定 APK 来源。** 优先使用模型 Workspace 中已有的最终 APK；同时读取 Manifest 或 `aapt dump badging` 确认包名、最低 SDK 和启动 Activity。若 Workspace 没有 APK，但有完整 Android 源码和可执行构建入口，可在质检环境构建一个仅用于复测的 QC 重构 APK。重构 APK 只能证明当前源码可安装、可运行，不改变“原始模型交付缺 APK”的结论，也不得把重构包当作模型原始交付物写入反馈。
+2. **补齐构建环境。** 按环境依赖闸门补齐 JDK、PowerShell、Android SDK、Build Tools 和 `adb`；优先使用模型提供的 `build-debug.ps1` 或仓库已有构建入口，不修改模型源码。构建命令示例：
+
+   ```bash
+   export ANDROID_SDK_ROOT=<android-sdk>
+   export JAVA_HOME=<jdk>
+   pwsh -NoProfile -File build-debug.ps1
+   ```
+
+   构建输出和失败原因写入 `tasks/<任务ID>/logs/`。补齐依赖后必须重新构建；仍失败时不得伪造运行截图，应保留可读的构建错误或静态证据并按实际情况评价。
+3. **启动模拟器。** 使用满足 `minSdkVersion` 的 x86_64 系统镜像和独立 AVD。无 KVM 时可用软件渲染启动：
+
+   ```bash
+   emulator -avd <avd> -no-window -no-audio -no-snapshot \
+     -gpu swiftshader_indirect -accel off -no-boot-anim
+   adb wait-for-device
+   ```
+
+   等待 `sys.boot_completed=1` 后再安装；若系统服务或 `package` 尚未可用，不要在半启动状态截图。模拟器只作为质检环境，完成后关闭并清理进程。
+4. **安装并启动。** 使用确认过的 APK 执行 `adb install -r <apk>`，通过 `adb shell monkey -p <package> -c android.intent.category.LAUNCHER 1` 启动。若首次进入出现 Android 全屏提示或系统教学层，先关闭它，再截取纯 app 画面。启动后应确认当前焦点属于目标包的 Activity。
+5. **每模型截 2 张运行态图。** 每个可下载、可启动的 Android 模型固定增加两张有明显状态差异的现场截图：第一张为稳定的主菜单、首页或初始状态；第二张为点击开始、选择难度、进入训练或出现首个业务内容后的运行状态。两张都必须直接来自 `adb exec-out screencap -p`，不能复用标注人截图，不能使用系统提示层，也不能保留两张完全相同的帧。推荐命名为 `<模型>_NN_runtime_menu.png` 与 `<模型>_NN_runtime_game.png`，写入 `delivery/<任务ID>/screenshots/`；已有证据保留，`NN` 使用该模型下尚未占用的编号。
+6. **更新合成图并验收。** 将远端截图复制回本地交付目录后执行：
+
+   ```bash
+   python3 skills/qc-eval/scripts/compose.py <任务ID>
+   python3 skills/qc-eval/scripts/blank_guard.py <任务ID>
+   python3 skills/qc-eval/scripts/evidence_guard.py <任务ID>
+   python3 skills/qc-eval/scripts/screenshot_style_guard.py <任务ID>
+   ```
+
+   `compose.py` 会把该模型全部个人证据按文件名横向合成到 `<模型>_verify.png`；不要手工增加标题、边框、说明文字或上下拼接。三类截图守卫未通过时，先修复截图再生成 xlsx 或回写飞书。
+
 ### u03l 约束
 
 - 先 `python3 skills/qc-eval/scripts/u03l.py check-host`。不可达则停，开机后再跑；禁止降级成 mock 服务后仍把 `verifiable` 写成 `是`。
@@ -431,7 +467,7 @@ python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-us
 
 ### 截图合格线
 
-Markdown 文档产物可用 `node skills/qc-eval/scripts/screenshot_markdown.js <任务ID>` 补充原文渲染截图（需要 `marked` 与 Playwright）。在任务目录 `screenshot_markdown.json` 的 `documents` 中配置 `source`（相对 `extracted/` 的原始 Markdown 路径）和 `name`（如 `0825E_04_markdown`）；脚本保存全文浏览器截图及来源哈希，不改写产物正文。配置顶层 `full_page: false` 时只截第一屏（1200×1400），用 `00_markdown` 编号可排在合成图第一张，再用 `compose.py` 横向合成。
+Markdown 文档产物可用 `node skills/qc-eval/scripts/screenshot_markdown.js <任务ID>` 补充原文渲染截图（需要 `marked` 与 Playwright）。在任务目录 `screenshot_markdown.json` 的 `documents` 中配置 `source`（相对 `extracted/` 的原始 Markdown 路径）和 `name`（如 `gazelle_04_markdown`）；脚本保存全文浏览器截图及来源哈希，不改写产物正文。配置顶层 `full_page: false` 时只截第一屏（1200×1400），用 `00_markdown` 编号可排在合成图第一张，再用 `compose.py` 横向合成。
 
 跑不通不要交白屏。换成报错终端、浏览器 console 或出错源码截图。`delivery/<TASK_ID>/screenshots/` 只留有效 PNG 和横向拼接的 `<模型>_verify.png`。`blank_guard.py` / `evidence_guard.py` / `screenshot_style_guard.py` 命中即不合格。
 
@@ -502,12 +538,12 @@ CLI / 测试 / 终端证据截图只保留与复测结论直接相关的命令�
 ## 关键约束
 
 1. 质检相关动作只走本技能列出的集中脚本，不直接调底层 API 或 lark-cli。
-2. 本仓库当前默认飞书交付目标为 `sheet=xDbmHs`。源表只读本地 `docs/45.xlsx`。
+2. 本仓库当前默认飞书交付目标为 `sheet=wzNDiG`。源表只读本地 `docs/g4.xlsx`。
 3. 自动流程只生成本地文件；飞书回写只能在用户明确下达上传/回写指令后，通过显式 push 命令执行。用户只说“质检 <任务ID>”时，不得执行 `--write`。平台质检表单同样：只有用户明确要求填写网页表单后才运行 `fill_g1_audit_form.js`；该脚本只能保存草稿，不能提交。
 4. 截图必须是本人复测证据，不能复用标注人的截图；`delivery/<TASK_ID>/screenshots/` 只保留有效截图 PNG（如 `<模型>_01_cli.png`）和合成图 PNG（`<模型>_verify.png`），不要保留 `log.txt`、临时图、别名图或其他辅助文件。合成图必须按左右横向拼接原图，禁止上下纵向拼接；若只有一张有效截图，则直接复用该原图作为 `<模型>_verify.png`。提示词轮次作弊时，下载可用模型共用提示词红框图，文件名用 `<模型>_01_prompt_cheat.png`；下载不可用模型使用 `<模型>_01_download_blocker.png`。
 5. `delivery/<TASK_ID>/<TASK_ID>.xlsx` 必须从空白 workbook 重建，只包含表头行和该任务行。
 6. `.ark_platform_state.json`、本地探测缓存和登录态文件不能提交。
-7. 流程脚本未调通、出现未配置额外模型、首轮「上传产物」未完整下载/检查、或已完成模型的「下载列表」采不到时，停下来与人工核对，不要继续编造材料。45期预期模型缺失不属于模型集异常，但必须有 `missing=true` 和缺失证据。两类产物必须分别判断，任何一方为空都不能推断另一方为空。命中提示词轮次作弊时仍保留前置下载按钮判定：下载不可用模型用下载阻断模板，下载可用模型用提示词作弊模板；两类模型都跳过 workspace / 轨迹和产物复测。
+7. 流程脚本未调通、出现未配置额外模型、首轮「上传产物」未完整下载/检查、或已完成模型的「下载列表」采不到时，停下来与人工核对，不要继续编造材料。g4-new期预期模型缺失不属于模型集异常，但必须有 `missing=true` 和缺失证据。两类产物必须分别判断，任何一方为空都不能推断另一方为空。命中提示词轮次作弊时仍保留前置下载按钮判定：下载不可用模型用下载阻断模板，下载可用模型用提示词作弊模板；两类模型都跳过 workspace / 轨迹和产物复测。
 8. 提示词轮次作弊必须在页面提示词和首轮上传产物中的 Markdown/文本全部收集后、复测模型产物之前判定。禁止只看页面 Prompt，或先测完模型产物再补判作弊。
 9. 填写平台质检表单时只改右侧「质检」面板，只点「保存草稿」。禁止提交审核、打回，也禁止改评测打分或其他页签。
 10. 写反馈质量前必须对照评测打分的归因标签、维度备注和实际情况。标签是标注人评价的一部分；标签成立且备注没有相反矛盾描述时，不因备注未展开标签降档。标签错选不能定高质量，质量备注必须点名标签与备注或实测不符。
@@ -541,7 +577,7 @@ python3 skills/qc-eval/scripts/render_missing_model_evidence.py <任务ID>
 # python3 skills/qc-eval/scripts/compose_cli.py <任务ID>
 # python3 skills/qc-eval/scripts/u03l.py check-host
 # python3 skills/qc-eval/scripts/verify_fullstack.py <任务ID>
-python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 45期
+python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period g4-new期
 python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
 # AI 轨迹质检准确性字段：按源表模型数量动态检查，完整存在时先预览，确认后写入本地 xlsx：
 node skills/qc-eval/scripts/fill_ai_qc_accuracy.mjs --task-id <任务ID>

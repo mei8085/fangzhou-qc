@@ -73,9 +73,9 @@ function configuredSourceSheet() {
 function configuredSourcePath() {
   const configPath = path.join(REPO_ROOT, "skills", "qc-eval", "config", "g1.json");
   try {
-    return String(readJson(configPath).source_xlsx || path.join("docs", "45.xlsx"));
+    return String(readJson(configPath).source_xlsx || path.join("docs", "g4.xlsx"));
   } catch (_) {
-    return path.join("docs", "45.xlsx");
+    return path.join("docs", "g4.xlsx");
   }
 }
 

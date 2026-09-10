@@ -6,9 +6,9 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'g1.json');
-const FALLBACK_PROJECT_ID = 383;
+const FALLBACK_PROJECT_ID = 317;
 const FALLBACK_PROJECT_URL =
-  'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/383/task/9046';
+  'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/317/task/7455';
 const FALLBACK_CHROME_PROFILE = 'Profile 4';
 
 function loadConfig() {

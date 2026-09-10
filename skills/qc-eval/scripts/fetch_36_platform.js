@@ -248,7 +248,19 @@ function taskUploadField(task) {
   throw new Error('CaseBffV1CrowdtestTaskGet did not report an attachments field; cannot verify 首轮 Prompt / 上传产物');
 }
 
-async function collectTaskUploads(task, taskDir, opts) {
+function attachmentDownloadUrl(value) {
+  if (!value || typeof value !== 'object') return '';
+  for (const key of ['downloadUrl', 'previewUrl', 'url', 'signedUrl', 'presignedUrl']) {
+    if (typeof value[key] === 'string' && value[key].trim()) return value[key].trim();
+  }
+  for (const key of ['data', 'result', 'file', 'attachment']) {
+    const nested = attachmentDownloadUrl(value[key]);
+    if (nested) return nested;
+  }
+  return '';
+}
+
+async function collectTaskUploads(task, taskDir, opts, ctx, statePath) {
   const uploadField = taskUploadField(task);
   const uploadsDir = path.join(taskDir, 'task_uploads');
   const manifestPath = path.join(taskDir, 'task_uploads.json');
@@ -275,7 +287,16 @@ async function collectTaskUploads(task, taskDir, opts) {
 
   try {
     for (const [index, att] of uploadField.items.entries()) {
-      const url = att.downloadUrl || att.previewUrl || att.url;
+      let url = att.downloadUrl || att.previewUrl || att.url;
+      if (!url && att.id != null) {
+        const downloadInfo = await postAction(
+          ctx,
+          statePath,
+          'CaseBffV1CrowdtestTaskAttachmentDownload',
+          { attachmentId: Number(att.id) },
+        );
+        url = attachmentDownloadUrl(downloadInfo);
+      }
       const fileName = safeUploadName(
         att.fileName || att.relativePath || att.name,
         `upload_${String(index + 1).padStart(2, '0')}.bin`,
@@ -476,7 +497,10 @@ async function fetchWorkspaceZip(ctx, statePath, run, runDir, opts) {
   }
 
   const expired = Boolean(
-    latestItem && latestItem.expiresAt && Number(latestItem.expiresAt) < Date.now(),
+    latestItem && (
+      (latestItem.expiresAt && Number(latestItem.expiresAt) < Date.now())
+      || latestItem.errorType === 'job_state_expired'
+    ),
   );
   let job = expired ? null : latestItem;
   const latestUrl = !expired && latestItem && (latestItem.downloadUrl || latestItem.url || latestItem.packageUrl);
@@ -713,11 +737,23 @@ function loadDownloadAvailability(taskDir, taskId, rows) {
   const rowsByPlatform = new Map(
     (discovery.download_rows || []).map((row) => [String(row.platform || '').trim().toLowerCase(), row]),
   );
+  const rowsByRunId = new Map(
+    (discovery.download_rows || []).map((row) => [String(row.task_model_run_id || '').trim(), row]),
+  );
   const unavailable = new Set();
   const available = new Set();
   const problems = [];
   for (const run of rows) {
-    const platform = String((run.modelRun && run.modelRun.codeName) || '').trim().toLowerCase();
+    if (!run.modelRun) run.modelRun = {};
+    const runId = String(run.modelRun.taskModelRunId || '').trim();
+    const discoveryRow = rowsByRunId.get(runId);
+    if (!String(run.modelRun.codeName || '').trim() && discoveryRow && discoveryRow.platform) {
+      run.modelRun.codeName = discoveryRow.platform;
+    }
+    if (!String(run.modelRun.realName || '').trim() && discoveryRow && discoveryRow.platform) {
+      run.modelRun.realName = discoveryRow.platform;
+    }
+    const platform = String(run.modelRun.codeName || '').trim().toLowerCase();
     const row = rowsByPlatform.get(platform);
     if (!row) {
       problems.push(`${platform || '(unknown)'} missing from download list`);
@@ -957,7 +993,7 @@ async function collect(opts) {
 
     // "首轮 Prompt / 上传产物" is independent from model Workspace/download-list.
     // Download and inspect it before any prompt gate or product review.
-    await collectTaskUploads(task, taskDir, runOpts);
+    await collectTaskUploads(task, taskDir, runOpts, ctx, statePath);
 
     if (scanPromptCheat(localId)) {
       console.log('==> PROMPT CHEAT: skip workspace / trajectory / download-list; do not retest products');

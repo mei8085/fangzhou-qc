@@ -1,10 +1,10 @@
 {
-  "period": "45期",
-  "project_id": 326,
+  "period": "g4-new期",
+  "project_id": 317,
   "source": {
-    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/383/task/7841",
-    "task_id": 7841,
-    "task_title": "CellSteward 平台交接修复",
+    "url": "https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/317/task/7455",
+    "task_id": 7455,
+    "task_title": "为 HoloLake 开发编号化模块数据舱与卸载重装恢复协议",
     "note": "质检表单字段沿用当前 Ark 通用结构；逐模型 review URL 由采集结果动态生成，未作答模型无可写入的审核页。"
   },
   "page": {

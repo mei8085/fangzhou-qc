@@ -167,15 +167,31 @@ function loadAnswers(file, models, taskId) {
 }
 
 async function updatePanel(page, row, answer, taskId, outputDir, noScreenshots) {
-  await page.getByRole('button', { name: '重新编辑', exact: true }).click();
-  // Arco renders the input as a hidden radio and exposes the visible label
-  // as the clickable control after 「重新编辑」.
+  const reason = page.getByRole('textbox', { name: 'AI 质检反馈原因' });
   const accuracyRadio = page.locator('label.arco-radio-button')
     .filter({ hasText: answer.accuracy })
     .first();
+
+  await reason.waitFor({ state: 'visible', timeout: 10000 });
   await accuracyRadio.waitFor({ state: 'visible', timeout: 10000 });
+
+  const reasonDisabled = await reason.isDisabled().catch(() => true);
+  const radioDisabled = await accuracyRadio.locator('input').isDisabled().catch(() => true);
+
+  // New tasks expose an editable feedback form immediately. Existing feedback
+  // records may require reopening, so click 「重新编辑」 only when fields are locked.
+  if (reasonDisabled || radioDisabled) {
+    const reopen = page.getByRole('button', { name: '重新编辑', exact: true });
+    if (!(await reopen.isEnabled().catch(() => false))) {
+      throw new Error(`${row.sheet}: AI feedback form is disabled and 重新编辑 is unavailable`);
+    }
+    await reopen.click();
+    await reason.waitFor({ state: 'visible', timeout: 10000 });
+  }
+
+  // Arco renders the input as a hidden radio and exposes the visible label
+  // as the clickable control.
   await accuracyRadio.click({ force: true });
-  const reason = page.getByRole('textbox', { name: 'AI 质检反馈原因' });
   await reason.fill(answer.reason);
 
   const submit = page.getByRole('button', { name: '提交反馈', exact: true });

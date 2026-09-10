@@ -43,8 +43,10 @@ CODE_ONLY_TOKENS = {
 
 RUNTIME_TOKENS = {
     "api",
+    "author_modules",
     "blocker",
     "build",
+    "capsule",
     "cli",
     "dashboard",
     "dialog",
@@ -64,6 +66,8 @@ RUNTIME_TOKENS = {
     "terminal",
     "test",
     "ui",
+    "workspace",
+    "write_draft",
 }
 
 STATIC_REVIEW_TOKENS = CODE_ONLY_TOKENS | {
