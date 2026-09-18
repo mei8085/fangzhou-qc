@@ -94,6 +94,32 @@ function isIncompleteAudit(taskId, row) {
     || !trajectory.resultJson?.FeedbackGrade;
 }
 
+function classifyAiQcPanel(panelText) {
+  const text = String(panelText || '').replace(/\s+/g, ' ').trim();
+  const unavailableMarkers = [
+    ['结果待复核', '结果待复核'],
+    ['重试耗尽', '重试耗尽'],
+    ['人工兜底', '人工兜底'],
+    ['provider_job_stuck', 'provider_job_stuck'],
+    ['脏数据状态未知', '脏数据状态未知'],
+  ];
+  for (const [marker, reason] of unavailableMarkers) {
+    if (text.includes(marker)) {
+      return {
+        available: false,
+        reason: `方舟平台 AI 质检无正常结果：${reason}`,
+      };
+    }
+  }
+  if (!text.includes('质检通过') && !text.includes('质检异常')) {
+    return {
+      available: false,
+      reason: '方舟平台 AI 质检页面未显示正常质检结果',
+    };
+  }
+  return { available: true, reason: '' };
+}
+
 async function openPanel(page, row) {
   await page.goto(row.audit_url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   const button = page.getByRole('button', { name: /AI 质检/ });
@@ -121,6 +147,7 @@ async function extractPanel(page, taskId, row, outputDir, noScreenshots) {
   const checkedAccuracy = await page.locator('input[type="radio"]:checked')
     .evaluate((el) => el.getAttribute('aria-label') || el.parentElement?.innerText || '')
     .catch(() => '');
+  const platformState = classifyAiQcPanel(panelText || bodyText);
 
   return {
     task_id: String(taskId),
@@ -131,6 +158,8 @@ async function extractPanel(page, taskId, row, outputDir, noScreenshots) {
     audit_url: row.audit_url,
     captured_at: new Date().toISOString(),
     ai_panel_text: panelText || bodyText,
+    platform_ai_qc_available: platformState.available,
+    platform_skip_reason: platformState.reason,
     existing_accuracy: checkedAccuracy.trim(),
     existing_reason: accuracyReason,
     files: {
@@ -167,6 +196,15 @@ function loadAnswers(file, models, taskId) {
 }
 
 async function updatePanel(page, row, answer, taskId, outputDir, noScreenshots) {
+  const panelText = await page.locator('body').innerText();
+  const platformState = classifyAiQcPanel(panelText);
+  if (!platformState.available) {
+    return {
+      skipped: true,
+      skip_reason: platformState.reason,
+    };
+  }
+
   const reason = page.getByRole('textbox', { name: 'AI 质检反馈原因' });
   const accuracyRadio = page.locator('label.arco-radio-button')
     .filter({ hasText: answer.accuracy })
@@ -183,7 +221,10 @@ async function updatePanel(page, row, answer, taskId, outputDir, noScreenshots) 
   if (reasonDisabled || radioDisabled) {
     const reopen = page.getByRole('button', { name: '重新编辑', exact: true });
     if (!(await reopen.isEnabled().catch(() => false))) {
-      throw new Error(`${row.sheet}: AI feedback form is disabled and 重新编辑 is unavailable`);
+      return {
+        skipped: true,
+        skip_reason: '方舟平台当前账号或审核状态不支持编辑 AI 质检人工反馈',
+      };
     }
     await reopen.click();
     await reason.waitFor({ state: 'visible', timeout: 10000 });
@@ -195,7 +236,12 @@ async function updatePanel(page, row, answer, taskId, outputDir, noScreenshots) 
   await reason.fill(answer.reason);
 
   const submit = page.getByRole('button', { name: '提交反馈', exact: true });
-  if (!(await submit.isEnabled())) throw new Error(`${row.sheet}: 提交反馈 is not enabled`);
+  if (!(await submit.isEnabled())) {
+    return {
+      skipped: true,
+      skip_reason: '方舟平台 AI 质检人工反馈提交按钮不可用',
+    };
+  }
   await submit.click();
 
   // The page already contains 「已反馈」 before editing, so waiting only for
@@ -262,19 +308,30 @@ async function main() {
           opts.noScreenshots,
         );
         if (opts.update) {
-          const verified = await updatePanel(
-            page,
-            row,
-            answers[row.sheet],
-            opts.taskId,
-            outputDir,
-            opts.noScreenshots,
-          );
-          Object.assign(captured, verified);
-          captured.updated = true;
-          captured.submitted_accuracy = answers[row.sheet].accuracy;
-          captured.submitted_reason = answers[row.sheet].reason;
-          captured.submitted_at = new Date().toISOString();
+          if (!captured.platform_ai_qc_available) {
+            captured.platform_feedback_skipped = true;
+            console.log(`   skipped: ${captured.platform_skip_reason}`);
+          } else {
+            const result = await updatePanel(
+              page,
+              row,
+              answers[row.sheet],
+              opts.taskId,
+              outputDir,
+              opts.noScreenshots,
+            );
+            if (result.skipped) {
+              captured.platform_feedback_skipped = true;
+              captured.platform_skip_reason = result.skip_reason;
+              console.log(`   skipped: ${result.skip_reason}`);
+            } else {
+              Object.assign(captured, result);
+              captured.updated = true;
+              captured.submitted_accuracy = answers[row.sheet].accuracy;
+              captured.submitted_reason = answers[row.sheet].reason;
+              captured.submitted_at = new Date().toISOString();
+            }
+          }
         }
         const modelPath = path.join(outputDir, `${safeName(row.sheet)}__${safeName(row.platform)}.json`);
         writeJSON(modelPath, captured);
@@ -292,7 +349,13 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message || error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.stack || error.message || error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  classifyAiQcPanel,
+};

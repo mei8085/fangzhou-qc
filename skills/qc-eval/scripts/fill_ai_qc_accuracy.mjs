@@ -32,6 +32,7 @@ function parseArgs(argv) {
     source: "",
     sheet: "",
     write: false,
+    refresh: false,
   };
   for (let i = 2; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -41,13 +42,15 @@ function parseArgs(argv) {
     else if (arg === "--source") opts.source = argv[++i] || "";
     else if (arg === "--sheet") opts.sheet = argv[++i] || "";
     else if (arg === "--write") opts.write = true;
+    else if (arg === "--refresh") opts.refresh = true;
     else if (!opts.taskId && !arg.startsWith("--")) opts.taskId = arg;
     else throw new Error(`unknown argument: ${arg}`);
   }
   if (!opts.taskId) {
     throw new Error(
       "usage: fill_ai_qc_accuracy.mjs --task-id <任务ID> " +
-      "[--source <xlsx>] [--sheet <sheet>] [--answers <json>] [--xlsx <xlsx>] [--write]",
+      "[--source <xlsx>] [--sheet <sheet>] [--answers <json>] [--xlsx <xlsx>] " +
+      "[--write] [--refresh]",
     );
   }
   return opts;
@@ -182,6 +185,36 @@ function redlineIssue(qcCells) {
   ).trim();
 }
 
+function cleanReasonText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[。；;]+$/u, "");
+}
+
+function auditReasonFor(model, qcCells) {
+  const modelQc = qcCells?.sheet?.models?.[model] || {};
+  const reason = cleanReasonText(
+    modelQc.platform_audit_reason
+    || modelQc.audit_reason
+    || "",
+  );
+  return reason || "对应审核理由未提供";
+}
+
+function generatedReason(model, evidence, qcCells) {
+  const accurate = evidence.workbookAccuracy === "是";
+  const result = accurate ? "一致" : "不一致";
+  const auditReason = auditReasonFor(model, qcCells);
+  return `${auditReason}；与 AI 审核结果${result}。`;
+}
+
+function isLegacyGeneratedReason(reason) {
+  const text = String(reason || "").trim();
+  return text.startsWith("人工判定反馈质量为")
+    || text.startsWith("人工判定该任务触发")
+    || text === "AI质检未完成";
+}
+
 function defaultAnswerFor(model, evidence, qcCells) {
   if (!evidence || !evidence.complete) {
     return {
@@ -190,12 +223,7 @@ function defaultAnswerFor(model, evidence, qcCells) {
     };
   }
   const platformAccuracy = expectedPlatformAccuracy(evidence.workbookAccuracy);
-  const redline = redlineIssue(qcCells);
-  const accurate = evidence.workbookAccuracy === "是";
-  const prefix = redline
-    ? `人工判定该任务触发${redline}红线，反馈质量${evidence.humanGrade}`
-    : `人工判定反馈质量为${evidence.humanGrade}`;
-  const reason = `${prefix}；AI质检判为${evidence.aiGrade}，因此结论${accurate ? "准确" : "不准确"}。`;
+  const reason = generatedReason(model, evidence, qcCells);
   return {
     accuracy: platformAccuracy,
     reason,
@@ -216,11 +244,13 @@ function loadAnswers(data, modelOrder, gradeEvidence, modelCount, qcCells) {
     if (!model) throw new Error(`answers missing mapping for ${position}`);
     const evidence = gradeEvidence[model];
     let answer = source[model] || source[position];
+    const existingReason = answer
+      && String(answer.sheet_reason || answer.local_reason || answer.reason || "").trim();
     if (
       !answer
       || (
         evidence?.complete
-        && String(answer.sheet_reason || answer.local_reason || answer.reason || "").trim() === "AI质检未完成"
+        && isLegacyGeneratedReason(existingReason)
       )
     ) {
       answer = defaultAnswerFor(model, evidence, qcCells);
@@ -450,7 +480,9 @@ async function main() {
 
   const mapPath = path.join(taskDir, "model_map.json");
   const qcCellsPath = path.join(taskDir, "qc_cells.json");
-  const answersData = fsSync.existsSync(answersPath) ? readJson(answersPath) : { models: {} };
+  const answersData = opts.refresh
+    ? { models: {} }
+    : fsSync.existsSync(answersPath) ? readJson(answersPath) : { models: {} };
   const modelMap = readJson(mapPath);
   const qcCells = readJson(qcCellsPath);
   const modelOrder = [

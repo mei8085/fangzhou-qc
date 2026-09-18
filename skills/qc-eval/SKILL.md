@@ -368,7 +368,7 @@ python3 skills/qc-eval/scripts/push_xlsx.py <任务ID> --period 46期
 - 源表一个 AI 准确性字段都不包含时，不新增列、不生成答案文件，也不执行填充；旧表流程保持不变。
 - 源表只包含部分字段、模型位置不连续、任一模型缺少成对字段，或字段数量与模型数量不匹配时，视为表结构错误并停止，不猜测或补齐缺失列。
 
-平台采集的逐模型 `audit.json` 在 `aiQc.trajectoryResult` 下保存 `FeedbackGrade`、`Reason`、`TraceStats`、`Issues`、`DirtyLabels` 和 `IsDirty`，因此优先使用本地采集结果，不重复打开 AI 质检侧边栏。判断规则固定为：人工反馈质量为“合格”或“高质量”且 AI 质检为“合格”时，结论准确；人工与 AI 档位相同也为准确；人工与 AI 档位相反时为不准确，例如人工“不合格”、AI“合格”。表格各模型判断字段填写“是/否”，平台“人工准确性反馈”仍填写“准确/不准确”。答案文件中表格字段使用 `sheet_accuracy`、`sheet_reason`，平台字段使用 `platform_accuracy`、`platform_reason`；表格理由只简略说明人工判定为高质量或合格的事实依据，不写内部规则解释。AI 质检未完成时，表格固定填写“否”和“AI质检未完成”，不生成或更新平台反馈。将答案写入 `tasks/<TASK_ID>/ai_feedback_answers.json`，理由不超过 500 字；本地填充脚本按源表模型数量处理对应的 2N 个字段，无 AI 字段时安全跳过，字段不完整或数量不匹配时直接报错；它读取 `qc_cells.json` 与 `audit.json` 自动计算并校验“是/否”，不接受与该规则冲突的手工判断。标准顺序是在 `push_xlsx.py` 之后先运行准确性脚本，再运行 `selfcheck.py`：
+平台采集的逐模型 `audit.json` 在 `aiQc.trajectoryResult` 下保存 `FeedbackGrade`、`Reason`、`TraceStats`、`Issues`、`DirtyLabels` 和 `IsDirty`，因此优先使用本地采集结果，不重复打开 AI 质检侧边栏。判断规则固定为：人工反馈质量为“合格”或“高质量”且 AI 质检为“合格”时，结论准确；人工与 AI 档位相同也为准确；人工与 AI 档位相反时为不准确，例如人工“不合格”、AI“合格”。表格各模型判断字段填写“是/否”，平台“人工准确性反馈”仍填写“准确/不准确”。答案文件中表格字段使用 `sheet_accuracy`、`sheet_reason`，平台字段使用 `platform_accuracy`、`platform_reason`；判断原因只保留对应 `platform_audit_reason` 的重点内容，再接“与 AI 审核结果一致/不一致”，不得添加“本模型的判断依据包括”“按本模型审核理由”“就这条模型反馈而言，人工理由是”等模板化开头，也不重复展开 AI 档位或准确性规则。AI 质检未完成时，表格固定填写“否”和“AI质检未完成”，不生成或更新平台反馈。将答案写入 `tasks/<TASK_ID>/ai_feedback_answers.json`，理由不超过 500 字；本地填充脚本按源表模型数量处理对应的 2N 个字段，无 AI 字段时安全跳过，字段不完整或数量不匹配时直接报错；它读取 `qc_cells.json` 与 `audit.json` 自动计算并校验“是/否”，不接受与该规则冲突的手工判断。标准顺序是在 `push_xlsx.py` 之后先运行准确性脚本，再运行 `selfcheck.py`：
 
 ```bash
 node skills/qc-eval/scripts/fill_ai_qc_accuracy.mjs --task-id <任务ID>
@@ -384,7 +384,7 @@ python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
 python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
 ```
 
-对于启用 AI 准确性字段的任务，填充本地 xlsx 后再按用户授权回写飞书；只有用户明确要求更新平台反馈时才使用 `probe_g1_ai_feedback.js --update`。平台更新新题时直接填写“准确/不准确”和理由，然后点击“提交反馈”，不依赖不可点击的“重新编辑”；只有已有反馈且输入控件确实 disabled 时，才尝试点击可用的“重新编辑”后再修改。提交后必须刷新页面重新读取并比对服务器保存值；只有回读准确性和理由都一致才算成功。AI 质检未完成的模型只写飞书“否 / AI质检未完成”，不得更新平台。该脚本只允许修改“准确/不准确”、反馈理由并点击“提交反馈”，不得改平台质检表单、评测打分或其他页面：
+对于启用 AI 准确性字段的任务，填充本地 xlsx 后再按用户授权回写飞书；只有用户明确要求更新平台反馈时才使用 `probe_g1_ai_feedback.js --update`。脚本先读取方舟 AI 质检侧边栏：若页面显示“结果待复核”“重试耗尽”“人工兜底”“provider_job_stuck”“脏数据状态未知”，或未显示正常的“质检通过/质检异常”结果，则认为 AI 质检没有正常数据，记录跳过原因并不填写人工准确性反馈；账号无编辑权限、重新编辑按钮不可用或提交按钮禁用时同样跳过，不报错。平台存在正常 AI 质检结果时，更新脚本才填写“准确/不准确”和理由，然后点击“提交反馈”；只有已有反馈且输入控件确实 disabled 时，才尝试点击可用的“重新编辑”后再修改。提交后必须刷新页面重新读取并比对服务器保存值；只有回读准确性和理由都一致才算成功。AI 质检未完成的模型只写飞书“否 / AI质检未完成”，不得更新平台。该脚本只允许修改“准确/不准确”、反馈理由并点击“提交反馈”，不得改平台质检表单、评测打分或其他页面：
 
 ```bash
 node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> --no-screenshots
@@ -392,6 +392,17 @@ node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> \
   --update --answers tasks/<TASK_ID>/ai_feedback_answers.json \
   --confirm-user-instructed
 ```
+
+### 人工触发的 AIQC 补充流程
+
+当方舟采集到的逐模型 `audit.json` 中 AI 轨迹质检结果缺失、状态为 `exhausted` 或没有 `FeedbackGrade`，且补充结果已提供在 `docs/aiqc.xlsx` 时，按用户明确指令单独运行补充脚本。脚本默认只预览，只有显式 `--apply` 才合并本地 `audit.json` 与任务级 `task.json`；它不评价反馈、不写飞书、不修改方舟，合并后继续复用本文件第 7～10 步的原有流程。
+
+```bash
+python3 skills/qc-eval/scripts/supplement_aiqc.py <任务ID>
+python3 skills/qc-eval/scripts/supplement_aiqc.py <任务ID> --apply
+```
+
+补充脚本的读取、字段校验和缓存合并逻辑集中在 `skills/qc-eval/scripts/lib/aiqc_supplement.py`；已完成且含有效 `FeedbackGrade` 的本地结果默认跳过，只有明确要求覆盖时才使用 `--force`。当补充结果覆盖已有 AIQC 时，重算准确性字段应加 `--refresh`，丢弃旧的 `ai_feedback_answers.json` 缓存并按当前 `audit.json` 重新生成答案。补充完成后必须重新执行 `fill_ai_qc_accuracy.mjs`、`push_xlsx.py`、`selfcheck.py`，并按用户授权重新更新方舟 AI 反馈和回写飞书。
 
 9. 填写平台质检表单必须听用户指令。用户明确要求“填写平台质检表单 / 保存草稿 / 写入网页质检”后，才把 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json` 填进 `projects/387/review/<taskModelRunId>?mode=audit` 右侧「质检」面板。脚本只改质检表单，并只点「保存草稿」。未作答模型没有审核页，脚本会记录跳过，不得伪造草稿。禁止点「提交审核」「打回」「返回列表」，禁止改「评测打分」、Session 轨迹、Workspace 或附件。提交必须留给人工检查后再点。
 

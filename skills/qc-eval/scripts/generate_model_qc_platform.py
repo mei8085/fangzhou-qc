@@ -55,6 +55,11 @@ PARTLY_USABLE = "\u90e8\u5206\u53ef\u7528"
 FULLY_UNUSABLE = "\u5b8c\u5168\u4e0d\u53ef\u7528"
 EMPTY_DIRTY_DISPLAY = "\u4e0d\u9009\uff08\u9875\u9762\u65e0\u300c\u975e\u810f\u6570\u636e\u300d\u6309\u94ae\uff0c\u7559\u7a7a\u5373\u975e\u810f\u6570\u636e\uff09"
 
+
+def display_task_title(value: str) -> str:
+    """Keep source titles readable without making them look like quoted feedback."""
+    return str(value or "").replace("\u201c", '"').replace("\u201d", '"')
+
 PROMPT_QUALITY_MAP = {
     HIGH_QUALITY: TASK_HIGH,
     QUALIFIED: TASK_MID,
@@ -289,7 +294,7 @@ def build_fill_payload(task_id: str, qc: dict, model_map: dict) -> dict:
 
 def render(task_id: str, qc: dict, model_map: dict | None = None) -> str:
     sheet = qc.get("sheet") or {}
-    task_title = qc.get("task_title") or sheet.get("task_title") or ""
+    task_title = display_task_title(qc.get("task_title") or sheet.get("task_title") or "")
     payload = build_fill_payload(task_id, qc, model_map or {})
     shared = payload["shared"]
 

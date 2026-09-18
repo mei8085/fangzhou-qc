@@ -50,6 +50,7 @@ RUNTIME_TOKENS = {
     "cli",
     "dashboard",
     "dialog",
+    "download",
     "edit",
     "error",
     "evaluation_redline",
