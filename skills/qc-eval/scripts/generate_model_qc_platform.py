@@ -35,6 +35,7 @@ from lib.g1 import (  # noqa: E402
     audit_url_for_run,
     load_g1_config,
 )
+from lib.annotator_tags import iter_model_evaluations, score_mapping_issues  # noqa: E402
 from lib.writing_style import (  # noqa: E402
     compose_feedback_note,
     default_audit_reason as build_default_audit_reason,
@@ -275,6 +276,18 @@ def build_fill_payload(task_id: str, qc: dict, model_map: dict) -> dict:
     sheet = qc.get("sheet") or {}
     g1 = load_g1_config()
     rows = [model_fill_row(qc, name, model_map) for name in ordered_model_names(sheet)]
+    raw_models = {row["sheet"]: row for row in iter_model_evaluations(task_id)}
+    mapping_errors = []
+    for row in rows:
+        raw = raw_models.get(row["sheet"])
+        if not raw:
+            continue
+        mapping_errors.extend(
+            f"{row['sheet']}: {issue}"
+            for issue in score_mapping_issues(raw, row["fields"].get("反馈质量备注", ""))
+        )
+    if mapping_errors:
+        raise ValueError("反馈质量备注维度分数映射错误: " + "; ".join(mapping_errors))
     first = rows[0]["fields"] if rows else {}
     example_url = str(g1.get("audit_url_template") or "")
     if "{taskModelRunId}" in example_url:

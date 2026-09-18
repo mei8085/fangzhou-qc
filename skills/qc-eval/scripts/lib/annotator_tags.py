@@ -49,6 +49,8 @@ DEFECT_TAGS = {
 }
 
 TAG_ISSUE_IN_NOTE = re.compile(r"标签|错选")
+PROCESS_SCORE_MENTION = re.compile(r"(?:执行过程|过程)\s*(\d+)\s*分")
+ARTIFACT_SCORE_MENTION = re.compile(r"(?:产物质量|产物)\s*(\d+)\s*分")
 BRACKET_TAG = re.compile(r"^【([^】]+)】")
 SELFTEST_INSUFFICIENT_RE = re.compile(
     r"(?:自测|自查|测试|验证|检查).{0,12}(?:不充分|不够充分|不足|遗漏)|"
@@ -228,6 +230,39 @@ def iter_model_evaluations(task_id: str) -> list[dict]:
     return out
 
 
+def score_mapping_issues(model_row: dict, note: str) -> list[str]:
+    """Check explicit process/artifact scores against dimension IDs, not list order."""
+    expected: dict[str, int] = {}
+    for dimension in model_row.get("dimensions") or []:
+        dimension_id = dimension.get("dimension_id")
+        name = str(dimension.get("dimension") or "").strip()
+        if dimension_id == PROCESS_DIM or name == "执行过程":
+            expected["执行过程"] = dimension.get("score")
+        elif dimension_id == ARTIFACT_DIM or name == "产物质量":
+            expected["产物质量"] = dimension.get("score")
+
+    mentioned = {
+        "执行过程": [int(value) for value in PROCESS_SCORE_MENTION.findall(str(note or ""))],
+        "产物质量": [int(value) for value in ARTIFACT_SCORE_MENTION.findall(str(note or ""))],
+    }
+    issues: list[str] = []
+    for dimension, values in mentioned.items():
+        actual = expected.get(dimension)
+        if actual is None or not values:
+            continue
+        try:
+            expected_score = int(actual)
+        except (TypeError, ValueError):
+            continue
+        wrong = sorted({value for value in values if value != expected_score})
+        if wrong:
+            issue_values = ",".join(str(value) for value in wrong)
+            issues.append(
+                f"dimension-score-mismatch:{dimension}:expected={expected_score}:mentioned={issue_values}"
+            )
+    return issues
+
+
 def note_mentions_tag_issue(note: str, audit: str = "") -> bool:
     """Return True if the QC note names the tag/remark problem."""
     blob = f"{note or ''} {audit or ''}"
@@ -326,6 +361,20 @@ def self_test() -> list[str]:
     artifact = next(item for item in prefix_row if item["dimension_id"] == 16)
     if "remark-prefix-is-自测不充分-not-selected" not in artifact["mismatches"]:
         failures.append("missed-prefix-not-in-selected-tags")
+
+    score_row = {
+        "dimensions": [
+            {"dimension_id": 16, "dimension": "产物质量", "score": 7},
+            {"dimension_id": 15, "dimension": "执行过程", "score": 8},
+        ]
+    }
+    if score_mapping_issues(score_row, "执行过程 7 分、产物质量 8 分。") != [
+        "dimension-score-mismatch:执行过程:expected=8:mentioned=7",
+        "dimension-score-mismatch:产物质量:expected=7:mentioned=8",
+    ]:
+        failures.append("score-mapping-detector-missed-reversal")
+    if score_mapping_issues(score_row, "执行过程 8 分、产物质量 7 分。"):
+        failures.append("score-mapping-detector-false-positive")
 
     if qc_coverage_issues({"mismatches": ["x"]}, "高质量", "过程 8 分相符，产物 8 分相符，反馈质量为高质量。"):
         pass

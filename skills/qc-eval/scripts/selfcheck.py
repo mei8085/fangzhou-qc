@@ -23,6 +23,7 @@ sys.path.insert(0, str(HERE))
 from lib.annotator_tags import (  # noqa: E402
     iter_model_evaluations,
     qc_coverage_issues,
+    score_mapping_issues,
     self_test as annotator_tag_self_test,
 )
 from lib.writing_style import (  # noqa: E402
@@ -157,6 +158,7 @@ FORBIDDEN_WORDS = [
     "自动化", "脚本", "pipeline", "compose", "screenshot_vue",
     "按 spec", "spec 维度", "spec 第", "稽核", "实测属实",
     "SKILL.md", "qc_cells", "model_map",
+    "Ubuntu 测试机", "测试机验证", "远端构建", "远端启动", "产物远端",
     "——", "—",
     "【", "】", "「", "」", "『", "』",
     # 把模型称作"这家"/"四家"是口语错觉（像在评供应商）。规范统一写作
@@ -1203,6 +1205,30 @@ def annotator_tag_qc_issues(
     return bad
 
 
+def annotator_score_mapping_issues(
+    ws,
+    headers: dict[str, int],
+    task_id: str,
+) -> dict[int, list[str]]:
+    """Ensure note-mentioned process/artifact scores match raw dimension IDs."""
+    if not task_id:
+        return {}
+    models = iter_model_evaluations(task_id)
+    if not models:
+        return {}
+    note_cols = {model: note_col for model, _, note_col in model_rating_note_cols(headers)}
+    bad: dict[int, list[str]] = {}
+    for row in models:
+        model = str(row.get("sheet") or "")
+        note_col = note_cols.get(model)
+        if not note_col:
+            continue
+        issues = score_mapping_issues(row, cell_text(ws, note_col))
+        if issues:
+            bad.setdefault(note_col, []).extend(issues)
+    return bad
+
+
 def load_qc_cells(task_id: str) -> dict | None:
     """Return tasks/<TASK_ID>/qc_cells.json when the file exists."""
     if not task_id:
@@ -1392,6 +1418,8 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
     for col, issues in annotator_tag_qc_issues(
         ws, headers, qc, task_id, prompt_cheat=prompt_cheat
     ).items():
+        bad.setdefault(col, []).extend(issues)
+    for col, issues in annotator_score_mapping_issues(ws, headers, task_id).items():
         bad.setdefault(col, []).extend(issues)
     return bad, period
 
