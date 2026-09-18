@@ -57,6 +57,11 @@ function readJson(file) {
   return JSON.parse(fsSync.readFileSync(file, "utf8"));
 }
 
+function writeJson(file, value) {
+  fsSync.mkdirSync(path.dirname(file), { recursive: true });
+  fsSync.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
 function resolveRepoPath(value) {
   return path.isAbsolute(value) ? value : path.join(REPO_ROOT, value);
 }
@@ -73,9 +78,9 @@ function configuredSourceSheet() {
 function configuredSourcePath() {
   const configPath = path.join(REPO_ROOT, "skills", "qc-eval", "config", "g1.json");
   try {
-    return String(readJson(configPath).source_xlsx || path.join("docs", "g4.xlsx"));
+    return String(readJson(configPath).source_xlsx || path.join("docs", "46.xlsx"));
   } catch (_) {
-    return path.join("docs", "g4.xlsx");
+    return path.join("docs", "46.xlsx");
   }
 }
 
@@ -152,7 +157,7 @@ function expectedPlatformAccuracy(sheetAccuracy) {
 }
 
 function isIncompleteAudit(audit) {
-  const trajectory = audit?.aiQc?.trajectoryResult;
+  const trajectory = audit?.aiQc?.trajectoryResult || audit?.trajectoryResult;
   return !trajectory
     || trajectory.status !== "success"
     || !trajectory.resultJson?.FeedbackGrade;
@@ -169,29 +174,57 @@ function platformAccuracy(sheet, expected) {
   return expected;
 }
 
-function loadAnswers(file, modelOrder, gradeEvidence, modelCount) {
-  const data = readJson(file);
+function redlineIssue(qcCells) {
+  return String(
+    qcCells?.sheet?.evaluation_redline?.issue
+    || qcCells?.sheet?.redline_issue
+    || "",
+  ).trim();
+}
+
+function defaultAnswerFor(model, evidence, qcCells) {
+  if (!evidence || !evidence.complete) {
+    return {
+      sheet_accuracy: "否",
+      sheet_reason: "AI质检未完成",
+    };
+  }
+  const platformAccuracy = expectedPlatformAccuracy(evidence.workbookAccuracy);
+  const redline = redlineIssue(qcCells);
+  const accurate = evidence.workbookAccuracy === "是";
+  const prefix = redline
+    ? `人工判定该任务触发${redline}红线，反馈质量${evidence.humanGrade}`
+    : `人工判定反馈质量为${evidence.humanGrade}`;
+  const reason = `${prefix}；AI质检判为${evidence.aiGrade}，因此结论${accurate ? "准确" : "不准确"}。`;
+  return {
+    accuracy: platformAccuracy,
+    reason,
+    sheet_accuracy: evidence.workbookAccuracy,
+    sheet_reason: reason,
+  };
+}
+
+function loadAnswers(data, modelOrder, gradeEvidence, modelCount, qcCells) {
   const source = data.models || data;
   const mapping = data.mapping || {};
   const answers = [];
+  const normalizedModels = {};
+  let generatedCount = 0;
   for (let i = 0; i < modelCount; i += 1) {
     const position = `模型${i + 1}`;
     const model = modelOrder[i] || mapping[position];
     if (!model) throw new Error(`answers missing mapping for ${position}`);
-    const answer = source[model] || source[position];
-    if (!answer) {
-      if (gradeEvidence[model] && !gradeEvidence[model].complete) {
-        answers.push({
-          position,
-          model,
-          platformAccuracy: "",
-          platformReason: "",
-          sheetAccuracy: "否",
-          sheetReason: "AI质检未完成",
-        });
-        continue;
-      }
-      throw new Error(`answers missing ${model}`);
+    const evidence = gradeEvidence[model];
+    let answer = source[model] || source[position];
+    if (
+      !answer
+      || (
+        evidence?.complete
+        && String(answer.sheet_reason || answer.local_reason || answer.reason || "").trim() === "AI质检未完成"
+      )
+    ) {
+      answer = defaultAnswerFor(model, evidence, qcCells);
+      generatedCount += 1;
     }
     const platformAccuracyValue = cellText(answer.accuracy || answer.platform_accuracy).trim();
     const platformReason = cellText(answer.platform_reason || answer.reason).trim();
@@ -227,8 +260,14 @@ function loadAnswers(file, modelOrder, gradeEvidence, modelCount) {
       sheetAccuracy,
       sheetReason,
     });
+    normalizedModels[model] = {
+      ...(platformAccuracyValue ? { accuracy: platformAccuracyValue } : {}),
+      ...(platformReason ? { reason: platformReason } : {}),
+      sheet_accuracy: sheetAccuracy || (evidence?.workbookAccuracy || ""),
+      sheet_reason: sheetReason,
+    };
   }
-  return answers;
+  return { answers, normalized: { models: normalizedModels }, generatedCount };
 }
 
 function loadGradeEvidence(taskId, modelMap, qcCells) {
@@ -264,7 +303,8 @@ function loadGradeEvidence(taskId, modelMap, qcCells) {
       evidence[sheet] = incompleteEvidence;
       continue;
     }
-    const aiGrade = audit.aiQc.trajectoryResult.resultJson.FeedbackGrade;
+    const trajectory = audit?.aiQc?.trajectoryResult || audit?.trajectoryResult;
+    const aiGrade = trajectory.resultJson.FeedbackGrade;
     const workbookAccuracy = expectedAccuracy(modelQc.rating, aiGrade);
     evidence[sheet] = {
       complete: true,
@@ -410,7 +450,7 @@ async function main() {
 
   const mapPath = path.join(taskDir, "model_map.json");
   const qcCellsPath = path.join(taskDir, "qc_cells.json");
-  const answersData = readJson(answersPath);
+  const answersData = fsSync.existsSync(answersPath) ? readJson(answersPath) : { models: {} };
   const modelMap = readJson(mapPath);
   const qcCells = readJson(qcCellsPath);
   const modelOrder = [
@@ -420,12 +460,18 @@ async function main() {
     ...Object.values(answersData.mapping || {}),
   ].filter((model, index, models) => model && models.indexOf(model) === index);
   const gradeEvidence = loadGradeEvidence(opts.taskId, modelMap, qcCells);
-  const answers = loadAnswers(
-    answersPath,
+  const loadedAnswers = loadAnswers(
+    answersData,
     modelOrder,
     gradeEvidence,
     targetHeaders.modelCount,
+    qcCells,
   );
+  const answers = loadedAnswers.answers;
+  if (opts.write && loadedAnswers.generatedCount) {
+    writeJson(answersPath, loadedAnswers.normalized);
+    console.log(`==> wrote ${path.relative(REPO_ROOT, answersPath)} (${loadedAnswers.generatedCount} generated answer(s))`);
+  }
 
   let values = sheet.getUsedRange().values;
   let headers = getHeaderMap(values);

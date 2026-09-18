@@ -11,6 +11,7 @@ import shutil
 import stat
 import sys
 import zipfile
+import errno
 from pathlib import Path, PurePosixPath
 
 HERE = Path(__file__).resolve().parent
@@ -53,7 +54,21 @@ def extract_workspace(archive: Path, target: Path, *, force: bool) -> int:
                 raise RuntimeError(f"workspace archive exceeds extraction limits: {archive}")
             destination = target / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(info) as source, destination.open("wb") as output:
+            try:
+                output = destination.open("wb")
+            except OSError as exc:
+                if exc.errno != errno.EILSEQ:
+                    raise
+                # macOS rejects a small set of Unicode code points in filenames.
+                # Keep the bytes and avoid the rejected character deterministically.
+                safe_name = "".join(
+                    char if ord(char) < 128 else f"_u{ord(char):04x}_"
+                    for char in relative.name
+                )
+                destination = destination.with_name(safe_name)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                output = destination.open("wb")
+            with zf.open(info) as source, output:
                 shutil.copyfileobj(source, output)
     return count
 

@@ -49,6 +49,49 @@ function loadG1Config() {
   return readJSON(G1_CONFIG_PATH);
 }
 
+function formatConfiguredUrl(template, replacements) {
+  if (!template) return '';
+  return String(template).replace(/\{(\w+)\}/g, (_match, key) => (
+    Object.prototype.hasOwnProperty.call(replacements, key)
+      ? String(replacements[key])
+      : `{${key}}`
+  ));
+}
+
+function configuredTaskUrl(projectId, taskId, config = loadG1Config()) {
+  const template = config && config.task_url_template;
+  if (template) return formatConfiguredUrl(template, { projectId, taskId });
+  const projectUrl = config && config.project_url;
+  if (projectUrl) {
+    let url = String(projectUrl)
+      .replace(/\/myprojects\/\d+\/task\/\d+(?:\?.*)?$/, `/myprojects/${projectId}/task/${taskId}`)
+      .replace(/\/task\/\d+(?:\?.*)?$/, `/task/${taskId}`);
+    if (url !== String(projectUrl)) return url;
+  }
+  return `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/${projectId}/task/${taskId}`;
+}
+
+function configuredAuditUrl(projectId, runId, config = loadG1Config()) {
+  const template = config && config.audit_url_template;
+  if (template) return formatConfiguredUrl(template, { projectId, taskModelRunId: runId, runId });
+  return `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${runId}?mode=audit`;
+}
+
+function configuredProjectReviewUrl(projectId, config = loadG1Config()) {
+  const auditTemplate = config && config.audit_url_template;
+  if (auditTemplate && auditTemplate.includes('/review/')) {
+    return String(auditTemplate)
+      .replace(/\{projectId\}/g, String(projectId))
+      .replace(/\/review\/\{?taskModelRunId\}?[^/?]*(?:\?.*)?$/, `?tab=review`);
+  }
+  const projectUrl = config && config.project_url;
+  if (projectUrl) {
+    const url = String(projectUrl).replace(/\/myprojects\/\d+\/task\/\d+(?:\?.*)?$/, `/projects/${projectId}?tab=review`);
+    if (url !== String(projectUrl)) return url;
+  }
+  return `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}?tab=review`;
+}
+
 function g1SheetModel(codeName, config) {
   const key = String(codeName || '').trim().toLowerCase();
   for (const model of (config && config.models) || []) {
@@ -590,7 +633,7 @@ async function discoverDownloadList(opts) {
     });
   });
 
-  const url = `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/${projectId}/task/${taskId}`;
+  const url = configuredTaskUrl(projectId, taskId, cfg);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await sleep(4000);
   await page.screenshot({ path: path.join(outDir, '_discover_task.png'), fullPage: true });
@@ -800,9 +843,10 @@ async function probeTaskDetailNetwork(ctx, projectId, taskId, taskDir) {
       }));
     pendingResponses.push(pending);
   });
+  const cfg = loadG1Config();
   const urls = [
-    `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/myprojects/${projectId}/task/${taskId}`,
-    `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}?tab=review`,
+    configuredTaskUrl(projectId, taskId, cfg),
+    configuredProjectReviewUrl(projectId, cfg),
   ];
   try {
     await page.goto(urls[0], { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -850,6 +894,17 @@ async function collectOneRun(ctx, statePath, run, taskDir, opts) {
     console.log('   [artifact] download button disabled; kept model metadata and scores, skipped attachments/audit/workspace/trajectory');
     return;
   }
+  if (opts.evaluationRedline) {
+    const auditPath = path.join(runDir, 'audit.json');
+    if (opts.keepExisting && fs.existsSync(auditPath)) {
+      console.log(`   [keep] ${rel(auditPath)}`);
+    } else {
+      const audit = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelAuditGet', { taskModelRunId: runId });
+      writeJSON(auditPath, audit);
+    }
+    console.log(`   [evaluation-redline] ${opts.evaluationRedline.issue}; kept audit/AI-QC result, skipped attachments/workspace/trajectory/download-list`);
+    return;
+  }
   try {
     const evaluation = readJSON(evaluationPath);
     await downloadEvaluationAttachments(evaluation, runDir, opts);
@@ -885,6 +940,177 @@ async function collectOneRun(ctx, statePath, run, taskDir, opts) {
   }
 }
 
+async function collectEvaluationOnly(ctx, statePath, rows, taskDir, opts) {
+  ensureDir(taskDir);
+  for (const run of rows) {
+    const runId = run.modelRun.taskModelRunId;
+    const tag = `${runId}__${sanitize(run.modelRun.codeName)}`;
+    const runDir = path.join(taskDir, tag);
+    ensureDir(runDir);
+    writeJSON(path.join(runDir, 'model_run.json'), run);
+    const evaluationPath = path.join(runDir, 'evaluation.json');
+    if (opts.keepExisting && fs.existsSync(evaluationPath)) {
+      console.log(`   [keep] ${rel(evaluationPath)}`);
+      continue;
+    }
+    const evaluation = await postAction(ctx, statePath, 'CaseBffV1CrowdtestTaskModelEvaluationGet', { taskModelRunId: runId });
+    writeJSON(evaluationPath, evaluation);
+    console.log(`   [evaluation] ${runId}/${run.modelRun.codeName}`);
+  }
+}
+
+function evaluationDimensionRows(payload) {
+  const evaluation = (payload && payload.evaluation) || {};
+  const dictionaries = (payload && payload.dictionaries) || {};
+  const dimNames = new Map(((dictionaries.dimensions) || []).map((item) => [item.id, String(item.name || '').trim()]));
+  const tagNames = new Map(((dictionaries.tags) || []).map((item) => [item.id, String(item.name || '').trim()]));
+  const tagsByDim = new Map();
+  for (const item of evaluation.tagMaps || []) {
+    if (!item || item.dimensionId == null || item.tagId == null) continue;
+    const name = tagNames.get(item.tagId);
+    if (!name) continue;
+    if (!tagsByDim.has(item.dimensionId)) tagsByDim.set(item.dimensionId, []);
+    tagsByDim.get(item.dimensionId).push(name);
+  }
+  return (evaluation.dimensionResults || []).map((item) => ({
+    dimension_id: item.dimensionId,
+    dimension: dimNames.get(item.dimensionId) || String(item.dimensionId || ''),
+    score: item.score,
+    remark: String(item.remark || '').trim(),
+    tags: tagsByDim.get(item.dimensionId) || [],
+  })).filter((item) => ['执行过程', '产物质量'].includes(item.dimension));
+}
+
+function effectiveRemarkText(remark, tags) {
+  let text = String(remark || '').trim();
+  text = text.replace(/【[^】]+】/g, '').trim();
+  for (const tag of tags || []) {
+    const escaped = String(tag).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    text = text.replace(new RegExp(escaped, 'g'), '').trim();
+  }
+  return text.replace(/\s+/g, '');
+}
+
+function perfunctoryReason(row) {
+  const raw = String(row.remark || '').trim();
+  const body = effectiveRemarkText(raw, row.tags);
+  if (!raw) return 'empty-remark';
+  if (!body) return 'tag-only-remark';
+  if (/^(还行|不错|可以|一般|尚可|ok|OK|好|较好|挺好|无|无明显问题)$/.test(body)) return 'vague-short-remark';
+  if (body.length <= 2) return 'too-short-remark';
+  return '';
+}
+
+function evaluationRedlineReport(rows, taskDir, config) {
+  const models = {};
+  const allScores = [];
+  const allRemarks = [];
+  for (const run of rows) {
+    const sheet = g1SheetModel(run.modelRun.codeName, config) || run.modelRun.codeName;
+    const evaluationPath = path.join(taskDir, `${run.modelRun.taskModelRunId}__${sanitize(run.modelRun.codeName)}`, 'evaluation.json');
+    if (!fs.existsSync(evaluationPath)) continue;
+    const payload = readJSON(evaluationPath);
+    const dims = evaluationDimensionRows(payload);
+    const scores = {};
+    const remarkRows = [];
+    for (const dim of dims) {
+      scores[dim.dimension] = dim.score;
+      const numeric = Number(dim.score);
+      if (Number.isFinite(numeric)) allScores.push(numeric);
+      const reason = perfunctoryReason(dim);
+      const row = {
+        dimension: dim.dimension,
+        score: dim.score,
+        remark: dim.remark,
+        tags: dim.tags,
+        perfunctory_reason: reason,
+      };
+      remarkRows.push(row);
+      allRemarks.push(row);
+    }
+    models[sheet] = {
+      platform: run.modelRun.codeName,
+      task_model_run_id: run.modelRun.taskModelRunId,
+      scores,
+      dimensions: remarkRows,
+    };
+  }
+  const lowDiscrimination = allScores.length >= 2
+    && Math.min(...allScores) >= 9
+    && Math.max(...allScores) - Math.min(...allScores) <= 1;
+  const perfunctoryCount = allRemarks.filter((item) => Boolean(item.perfunctory_reason)).length;
+  const perfunctoryRatio = allRemarks.length ? perfunctoryCount / allRemarks.length : 0;
+  const submittedModelCount = Object.keys(models).length;
+  const modelsWithPerfunctory = Object.values(models).filter((model) => (
+    (model.dimensions || []).some((item) => Boolean(item.perfunctory_reason))
+  )).length;
+  const perfunctory = allRemarks.length > 0
+    && (
+      allRemarks.every((item) => Boolean(item.perfunctory_reason))
+      || (perfunctoryRatio >= 0.75 && modelsWithPerfunctory === submittedModelCount)
+    );
+  let classification = '';
+  let issue = '';
+  if (lowDiscrimination) {
+    classification = 'task_discrimination_too_low';
+    issue = '题目区分度过低';
+  } else if (perfunctory) {
+    classification = 'perfunctory_feedback';
+    issue = '完全敷衍';
+  }
+  return {
+    schema_version: 1,
+    triggered: Boolean(classification),
+    classification,
+    issue,
+    scores: {
+      count: allScores.length,
+      min: allScores.length ? Math.min(...allScores) : null,
+      max: allScores.length ? Math.max(...allScores) : null,
+      all_scores_gte_9_and_range_lte_1: lowDiscrimination,
+    },
+    perfunctory: {
+      checked_dimension_count: allRemarks.length,
+      perfunctory_dimension_count: perfunctoryCount,
+      perfunctory_ratio: perfunctoryRatio,
+      submitted_model_count: submittedModelCount,
+      models_with_perfunctory_dimension_count: modelsWithPerfunctory,
+      all_dimension_remarks_perfunctory: perfunctory,
+    },
+    models,
+    generated_at: new Date().toISOString(),
+  };
+}
+
+async function screenshotEvaluationRedlineEvidence(ctx, rows, taskDir, projectId, config, report) {
+  if (!report.triggered) return report;
+  const screenshots = {};
+  for (const run of rows) {
+    const sheet = g1SheetModel(run.modelRun.codeName, config) || run.modelRun.codeName;
+    const page = await ctx.newPage();
+    try {
+      await page.setViewportSize({ width: 1920, height: 1600 });
+      const url = configuredAuditUrl(projectId, run.modelRun.taskModelRunId, config);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await sleep(6000);
+      const evalTab = page.getByText(/评测打分|打分|Evaluation/).first();
+      await evalTab.click({ timeout: 3000 }).catch(() => {});
+      await page.getByText('维度备注', { exact: false }).first().waitFor({ timeout: 8000 }).catch(() => {});
+      await sleep(1500);
+      const file = path.join(taskDir, `_evaluation_redline_${sanitize(sheet)}.png`);
+      await page.screenshot({ path: file, fullPage: true });
+      screenshots[sheet] = rel(file);
+      fs.copyFileSync(file, path.join(taskDir, '_evaluation_redline.png'));
+      console.log(`   [evaluation-redline-shot] ${sheet}: ${rel(file)}`);
+    } finally {
+      await page.close().catch(() => {});
+    }
+  }
+  report.evidence_screenshots = screenshots;
+  writeJSON(path.join(taskDir, 'evaluation_redline.json'), report);
+  return report;
+}
+
 async function collect(opts) {
   const projectId = Number(opts.project || DEFAULT_PROJECT_ID);
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
@@ -914,7 +1140,12 @@ async function collect(opts) {
   };
 
   const browser = await chromium.launch({ headless: true });
-  const ctx = await browser.newContext({ storageState: statePath, acceptDownloads: true });
+  const ctx = await browser.newContext({
+    storageState: statePath,
+    acceptDownloads: true,
+    viewport: { width: 1920, height: 1600 },
+    deviceScaleFactor: 2,
+  });
   try {
     const modelRunsPath = path.join(taskDir, 'model_runs.json');
     let list;
@@ -1002,6 +1233,22 @@ async function collect(opts) {
       runOpts.skipDownloadList = true;
       runOpts.promptCheat = true;
     }
+    if (!runOpts.promptCheat) {
+      await collectEvaluationOnly(ctx, statePath, rows, taskDir, runOpts);
+      const evaluationReport = evaluationRedlineReport(rows, taskDir, g1Config);
+      writeJSON(path.join(taskDir, 'evaluation_redline.json'), evaluationReport);
+      if (evaluationReport.triggered) {
+        await screenshotEvaluationRedlineEvidence(ctx, rows, taskDir, projectId, g1Config, evaluationReport);
+        console.log(`==> EVALUATION REDLINE: ${evaluationReport.issue}; keep audit / AI-QC result; skip attachments / workspace / trajectory / download-list; do not retest products`);
+        runOpts.skipWorkspace = true;
+        runOpts.skipTrajectory = true;
+        runOpts.skipDownloadList = true;
+        runOpts.evaluationRedline = {
+          classification: evaluationReport.classification,
+          issue: evaluationReport.issue,
+        };
+      }
+    }
 
     console.log(`==> task ${taskId}: ${rows[0].task.title}`);
     console.log(`==> runs: ${rows.map((r) => `${r.modelRun.taskModelRunId}/${r.modelRun.codeName}/${r.modelRun.realName}`).join(', ')}`);
@@ -1046,7 +1293,7 @@ async function collect(opts) {
           platform: run.modelRun.codeName,
           real_name: run.modelRun.realName,
           task_model_run_id: run.modelRun.taskModelRunId,
-          audit_url: `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${run.modelRun.taskModelRunId}?mode=audit`,
+          audit_url: configuredAuditUrl(projectId, run.modelRun.taskModelRunId, g1Config),
           missing: false,
           artifact_missing: runOpts.artifactDownloadUnavailablePlatforms.has(
             String(run.modelRun.codeName || '').trim().toLowerCase(),
@@ -1074,6 +1321,7 @@ async function collect(opts) {
       collected_sheet_columns: collectedSheetColumns,
       missing_sheet_columns: missingSheetColumns,
       prompt_cheat: Boolean(runOpts.promptCheat),
+      evaluation_redline: runOpts.evaluationRedline || null,
       models: modelMap,
       generated_at: new Date().toISOString(),
     });
@@ -1501,7 +1749,7 @@ async function authLogin(opts) {
   const cfg = loadG1Config() || {};
   const projectId = Number(opts.project || cfg.project_id || 313);
   const loginUrl = opts.url
-    || 'https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/256?tab=review';
+    || configuredProjectReviewUrl(projectId, cfg);
   const timeoutMs = Number(opts.timeout || 300000);
   ensureDir(path.dirname(statePath));
   let browser;
@@ -1665,7 +1913,7 @@ async function discoverSession(opts) {
         try { item.body = JSON.parse(text); } catch { item.text = text; }
       }).catch((err) => { item.bodyError = err.message; }));
     });
-    const url = `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${runId}?mode=audit`;
+    const url = configuredAuditUrl(projectId, runId, cfg);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await sleep(15000);
     if (opts['click-text']) {
@@ -1731,7 +1979,7 @@ async function discoverAuditForm(opts) {
       postData: req.postData(),
     });
   });
-  const url = `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${runId}?mode=audit`;
+  const url = configuredAuditUrl(projectId, runId, cfg);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await sleep(5000);
   await page.screenshot({ path: path.join(outDir, `_audit_form_${runId}.png`), fullPage: true });

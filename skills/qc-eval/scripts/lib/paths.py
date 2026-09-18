@@ -22,7 +22,7 @@ def _configured_g1_source_xlsx() -> Path:
     except (OSError, ValueError):
         value = None
     if not value:
-        return REPO_ROOT / "docs" / "44.xlsx"
+        return REPO_ROOT / "docs" / "46.xlsx"
     path = Path(str(value)).expanduser()
     return path if path.is_absolute() else REPO_ROOT / path
 

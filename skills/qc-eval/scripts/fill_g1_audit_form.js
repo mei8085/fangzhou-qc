@@ -43,6 +43,8 @@ const LABEL = {
   dirtyTags: '请选择脏数据标签',
 };
 
+const ONLY_FIELD_KEYS = new Set(['taskQuality', 'taskNote', 'feedbackNote', 'auditReason']);
+
 const SAVE_DRAFT = '保存草稿';
 const FORBIDDEN_BUTTONS = new Set([
   '提交审核',
@@ -78,7 +80,7 @@ function parseArgs(argv) {
 function usage(code = 2) {
   console.error(`usage:
   node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>
-       [--only <platform|code|sheet|runId>] [--only-fields feedbackNote,auditReason] [--dry-run] [--headed]
+       [--only <platform|code|sheet|runId>] [--only-fields taskQuality,taskNote,feedbackNote,auditReason] [--dry-run] [--headed]
        [--state skills/qc-eval/.ark_platform_state.json]
 
 This command writes the QC form and clicks 「保存草稿」 only.
@@ -280,7 +282,9 @@ async function openAuditPage(page, row) {
   const config = fs.existsSync(CONFIG_PATH) ? readJSON(CONFIG_PATH) : {};
   const projectId = config.project_id || 313;
   const url = row.audit_url
-    || `https://ark.volcengine.com/autocase/region:cn-beijing/crowdtest/projects/${projectId}/review/${row.task_model_run_id}?mode=audit`;
+    || String(config.audit_url_template || 'https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/projects/{projectId}/review/{taskModelRunId}?mode=audit')
+      .replace(/\{projectId\}/g, String(projectId))
+      .replace(/\{taskModelRunId\}/g, String(row.task_model_run_id));
   let lastErr;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -515,14 +519,22 @@ async function fillOneModel(page, row, want, opts, outDir, calls) {
 
   const onlyFields = opts['only-fields'] ? String(opts['only-fields']).split(',').map((s) => s.trim()) : null;
   if (onlyFields) {
-    if (!onlyFields.length || onlyFields.some((key) => !['feedbackNote', 'auditReason'].includes(key))) {
-      throw new Error('--only-fields supports feedbackNote,auditReason only');
+    if (!onlyFields.length || onlyFields.some((key) => !ONLY_FIELD_KEYS.has(key))) {
+      throw new Error('--only-fields supports taskQuality,taskNote,feedbackNote,auditReason only');
     }
     const before = await readFilled(opened.audit);
     want = Object.fromEntries(Object.keys(want).map((key) => [key, onlyFields.includes(key) ? want[key] : before[LABEL[key]]]));
     for (const key of onlyFields) {
-      await fillLabeledTextarea(opened.audit, LABEL[key], want[key]);
-      console.log(`   [field] ${LABEL[key]} (${want[key].length} chars)`);
+      if (key === 'taskQuality') {
+        await clickRadio(opened.audit, LABEL[key], want[key]);
+        console.log(`   [field] ${LABEL[key]}=${want[key]}`);
+      } else if (key === 'auditReason') {
+        await fillAuditReason(opened.audit, want[key]);
+        console.log(`   [field] ${LABEL[key]} (${want[key].length} chars)`);
+      } else {
+        await fillLabeledTextarea(opened.audit, LABEL[key], want[key]);
+        console.log(`   [field] ${LABEL[key]} (${want[key].length} chars)`);
+      }
     }
   } else {
   await clickRadio(opened.audit, LABEL.taskQuality, want.taskQuality);

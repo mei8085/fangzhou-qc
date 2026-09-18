@@ -39,6 +39,7 @@ from lib.writing_style import compose_feedback_note  # noqa: E402
 from lib.g1 import PERIOD, SOURCE_SHEET, to_feishu_dirty_tag  # noqa: E402
 from lib.label_options import LABEL_HEADER, resolve_task_label  # noqa: E402
 from lib.ai_accuracy import validate_ai_accuracy_headers as validate_dynamic_ai_accuracy_headers  # noqa: E402
+from lib.machine_qc import MACHINE_QC_NORMAL_HEADERS, machine_qc_normal_for_task  # noqa: E402
 
 DEFAULT_SOURCE = default_g1_source_xlsx()
 DEFAULT_SHEET = SOURCE_SHEET
@@ -66,11 +67,14 @@ HEADER_MAP_SHEET = {
     "红线问题": ("redline_issue", "redline_problem", "red_flag_issue"),
     "题目红线问题": ("redline_issue", "redline_problem", "red_flag_issue"),
     "题目红线备注": ("redline_note", "redline_remark", "题目红线备注"),
+    "备注": ("redline_note", "redline_remark", "题目红线备注"),
     "一次质检平台审核理由（按模型）": ("platform_audit_reasons", "audit_reasons", "一次质检平台审核理由（按模型）"),
     "0614C完成质量实际打分": "score_0614C",
     "GLM5.2完成质量打分": "score_GLM5_2",
     "机器质检结果是否正确": ("machine_qc_correct", "machine_result_correct", "machine_correct"),
     "错误原因": ("machine_qc_reason", "machine_result_reason", "machine_error_reason"),
+    "机评是否正常": ("machine_qc_normal", "machine_qc_ok", "机评是否正常"),
+    "机评是否正常显示": ("machine_qc_normal", "machine_qc_ok", "机评是否正常显示", "机评是否正常"),
 }
 # 期数相关字段：期数换了这些列直接不存在于表头，push 时静默跳过。
 _PERIOD_OPTIONAL_KEYS = {"diff_pattern", "score_0614C", "score_GLM5_2"}
@@ -81,6 +85,8 @@ _PERIOD_OPTIONAL_HEADERS = {
     "题目是否可验证",
     "是否正常题目",
     "机器质检结果是否正确",
+    "机评是否正常",
+    "机评是否正常显示",
     "错误原因",
     "0614C对比GLM 5.2 模型差异（轨迹/产物）pattern简述",
     "0614C完成质量实际打分",
@@ -384,6 +390,12 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
     normal_task_col = headers.get(NORMAL_TASK_HEADER)
     if normal_task_col:
         write_value(ws, row, normal_task_col, derive_normal_task(sheet))
+    machine_qc_normal = machine_qc_normal_for_task(REPO_ROOT, task_id)
+    if machine_qc_normal:
+        for header in MACHINE_QC_NORMAL_HEADERS:
+            col = headers.get(header)
+            if col:
+                write_value(ws, row, col, machine_qc_normal)
     redline_header = "题目红线问题" if headers.get("题目红线问题") else "红线问题"
     if headers.get(redline_header) and not has_sheet_key(sheet, HEADER_MAP_SHEET.get(redline_header, "redline_issue")):
         ratings = [sheet.get("prompt_quality"), *(m.get("rating") for m in sheet.get("models", {}).values())]

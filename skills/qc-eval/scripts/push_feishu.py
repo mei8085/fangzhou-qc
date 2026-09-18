@@ -143,6 +143,8 @@ def pushed_to_allowed_sheet(sentinel: Path) -> bool:
 
 # 期数无关的固定文字列（每期都有）。
 _TEXT_HEADER_ALWAYS = [
+    "机评是否正常",
+    "机评是否正常显示",
     "是否是高质量题目",
     "任务质量（题目质量）",
     "题目质量说明",
@@ -150,6 +152,7 @@ _TEXT_HEADER_ALWAYS = [
     "题目是否可验证",
     "不可验证原因",
     "分类是否正确",
+    "备注",
 ]
 _REDLINE_HEADERS = ["红线问题", "题目红线问题", "题目红线备注"]
 _TEXT_HEADER_TAIL = []

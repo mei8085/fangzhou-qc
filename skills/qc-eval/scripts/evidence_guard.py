@@ -52,6 +52,7 @@ RUNTIME_TOKENS = {
     "dialog",
     "edit",
     "error",
+    "evaluation_redline",
     "filter",
     "initial",
     "login",
@@ -104,6 +105,7 @@ ENV_BLOCKER_TERMS = (
     "u03l",
     "docker",
     "工作机",
+    "测试机",
 )
 
 U03L_SERVICE_TERMS = (
@@ -118,6 +120,34 @@ U03L_SERVICE_TERMS = (
     "kafka",
     "minio",
     "celery",
+    "docker",
+    "docker-compose",
+    "compose",
+    "spring boot",
+    "springboot",
+    "maven",
+    "gradle",
+    "jdk",
+    "java",
+    "mysql8",
+)
+
+LOCAL_ENV_ONLY_TERMS = (
+    "本机缺",
+    "本地缺",
+    "未安装",
+    "没有安装",
+    "找不到",
+    "command not found",
+    "unable to locate a java runtime",
+    "cannot connect to the docker daemon",
+    "docker daemon",
+    "mvn not found",
+    "maven not found",
+    "java runtime",
+    "jdk",
+    "maven",
+    "mysql",
     "docker",
 )
 
@@ -148,7 +178,7 @@ def filename_tokens(path: Path) -> set[str]:
     parts = re.split(r"[^0-9a-z]+", stem)
     tokens = {p for p in parts if p}
     # Keep multi-word phrases that are meaningful for this guard.
-    for phrase in ("code_editor", "table_config", "frontend_highlight", "prompt_cheat", "missing_model"):
+    for phrase in ("code_editor", "table_config", "frontend_highlight", "prompt_cheat", "missing_model", "evaluation_redline"):
         if phrase in stem:
             tokens.add(phrase)
     return tokens
@@ -183,25 +213,81 @@ def labeler_images(task_id: str) -> list[Path]:
 
 
 def task_text(task_id: str) -> str:
+    parts: list[str] = []
+    prompt_md = REPO_ROOT / "tasks" / task_id / "prompt.md"
+    if prompt_md.exists():
+        parts.append(prompt_md.read_text(encoding="utf-8", errors="replace"))
+    ark_task = REPO_ROOT / "tasks" / task_id / "ark_g1" / "task.json"
+    if ark_task.exists():
+        try:
+            data = load_json(ark_task)
+            parts.append(json.dumps(data, ensure_ascii=False))
+        except Exception:
+            pass
     raw_dir = REPO_ROOT / "tasks" / task_id / "raw" / task_id
     task_json = raw_dir / "task_manager_task.json"
     if task_json.exists():
         try:
             data = load_json(task_json)
-            return "\n".join(str(data.get(k) or "") for k in ("title", "prompt"))
+            parts.append("\n".join(str(data.get(k) or "") for k in ("title", "prompt")))
         except Exception:
-            return ""
-    return ""
+            pass
+    return "\n".join(parts)
+
+
+def extracted_stack_text(task_id: str) -> str:
+    """Inspect lightweight project metadata for backend/service-stack signals."""
+    extracted = REPO_ROOT / "tasks" / task_id / "extracted"
+    if not extracted.exists():
+        return ""
+    names = {
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "settings.gradle",
+        "settings.gradle.kts",
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "compose.yml",
+        "compose.yaml",
+        "Dockerfile",
+        "application.yml",
+        "application.yaml",
+        "application-dev.yml",
+        "application-dev.yaml",
+        "README.md",
+    }
+    chunks: list[str] = []
+    for path in extracted.rglob("*"):
+        if not path.is_file() or path.name not in names:
+            continue
+        try:
+            rel = path.relative_to(extracted)
+            text = path.read_text(encoding="utf-8", errors="replace")[:8000]
+            chunks.append(f"\n## {rel}\n{text}")
+        except Exception:
+            continue
+    return "\n".join(chunks)
 
 
 def mentions_service_stack(task_id: str) -> bool:
-    text = task_text(task_id).lower()
+    text = (task_text(task_id) + "\n" + extracted_stack_text(task_id)).lower()
     return any(term in text for term in U03L_SERVICE_TERMS)
 
 
 def reason_has_specific_blocker(reason: str) -> bool:
     lower = reason.lower()
     return any(term in lower for term in ENV_BLOCKER_TERMS)
+
+
+def reason_is_local_env_only(reason: str) -> bool:
+    lower = reason.lower()
+    return any(term in lower for term in LOCAL_ENV_ONLY_TERMS)
+
+
+def reason_mentions_remote_attempt(reason: str) -> bool:
+    lower = reason.lower()
+    return "u03l" in lower or "工作机" in reason or "测试机" in reason or "远端" in reason
 
 
 def check_task(task_id: str) -> list[str]:
@@ -254,10 +340,15 @@ def check_task(task_id: str) -> list[str]:
             "requires a concrete blocker such as missing credentials/hardware/source failure; "
             "generic static review is not enough"
         )
-    if verifiable == "否" and needs_u03l_check and "u03l" not in reason.lower() and "工作机" not in reason:
+    if verifiable == "否" and needs_u03l_check and not reason_mentions_remote_attempt(reason):
         errors.append(
             f"{task_id}: task mentions Docker/service dependencies; before marking 不可验证, "
             "the reason must say why u03l/工作机 Docker verification is not feasible"
+        )
+    if verifiable == "否" and reason_is_local_env_only(reason) and not reason_mentions_remote_attempt(reason):
+        errors.append(
+            f"{task_id}: 不可验证原因只说明本机环境缺失；必须先尝试 u03l/工作机 Docker "
+            "或在原因中写明为什么远端环境也不可行"
         )
 
     if verifiable == "否":

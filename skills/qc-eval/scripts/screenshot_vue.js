@@ -145,6 +145,8 @@ function resolveEntryDir(taskDir, info) {
     cands.push(path.join(base, 'web'));
     cands.push(path.join(base, 'frontend'));
     cands.push(path.join(base, 'frontend', 'web'));
+    cands.push(path.join(base, 'evalscope', 'web'));
+    cands.push(path.join(base, explicit, 'evalscope', 'web'));
     // Some full-stack artifacts are symlinked to backend/ for Python tests; the
     // frontend lives next to backend in the original repo.
     cands.push(path.join(base, '..', 'frontend'));
@@ -205,6 +207,23 @@ function packageRunner(entryDir) {
   if (fs.existsSync(path.join(entryDir, 'pnpm-lock.yaml'))) return { bin: 'pnpm', install: 'pnpm install --frozen-lockfile', run: 'pnpm run dev' };
   if (fs.existsSync(path.join(entryDir, 'yarn.lock'))) return { bin: 'yarn', install: 'yarn install --frozen-lockfile', run: 'yarn dev' };
   return { bin: 'npm', install: 'npm install --prefer-offline --no-audit --no-fund --loglevel=error', run: 'npm run dev' };
+}
+
+async function startStaticServer(publicDir, port) {
+  const python = process.env.QC_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+  const child = spawn(python, [
+    '-m', 'http.server', String(port),
+    '--bind', '127.0.0.1',
+    '--directory', publicDir,
+  ], {
+    cwd: publicDir,
+    windowsHide: true,
+    detached: process.platform !== 'win32',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.on('error', e => console.error('     static server spawn error:', e.message));
+  const url = await waitForHttpUrl(child, port);
+  return { child, url };
 }
 
 function isNextProject(entryDir) {
@@ -530,7 +549,18 @@ async function screenshotConfiguredModel(browser, label, code, entryDir, outDir,
 
   let dev;
   try {
-    dev = await startDevServer(entryDir, port);
+    const publicDir = config.static_public_dir
+      ? path.resolve(entryDir, config.static_public_dir)
+      : null;
+    if (publicDir) {
+      if (!fs.existsSync(path.join(publicDir, 'index.html'))) {
+        throw new Error(`static public directory has no index.html: ${publicDir}`);
+      }
+      console.log(`     serving static frontend from ${publicDir}`);
+      dev = await startStaticServer(publicDir, port);
+    } else {
+      dev = await startDevServer(entryDir, port);
+    }
   } catch (e) {
     console.error(`   [err] ${label}: dev server failed — ${e.message}`);
     return { error: e.message };
@@ -543,6 +573,9 @@ async function screenshotConfiguredModel(browser, label, code, entryDir, outDir,
   page.on('pageerror', e => errs.push(e.message));
   let currentRoute = config.route || '';
   let captureIndex = 0;
+  const minBodyTextLength = Number.isFinite(config.min_body_text_length)
+    ? config.min_body_text_length
+    : 30;
 
   try {
     for (let index = 0; index < steps.length; index++) {
@@ -553,12 +586,12 @@ async function screenshotConfiguredModel(browser, label, code, entryDir, outDir,
         if (page.url() === targetUrl) {
           await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
         } else {
-          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        }
-        await page.waitForFunction(
-          () => document.body && document.body.innerText && document.body.innerText.length > 30,
-          null, { timeout: 20000 }
-        );
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      }
+      await page.waitForFunction(
+        (minLength) => document.body && document.body.innerText && document.body.innerText.length > minLength,
+        minBodyTextLength, { timeout: 20000 }
+      );
       }
       if (step.set_input_files) {
         const upload = typeof step.set_input_files === 'string'

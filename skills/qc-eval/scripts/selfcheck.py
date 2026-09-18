@@ -52,6 +52,7 @@ from lib.label_options import LABEL_HEADER, label_options  # noqa: E402
 from lib.prompt_cheat import is_prompt_cheat_task  # noqa: E402
 from lib.ai_accuracy import inspect_ai_accuracy_schema  # noqa: E402
 from lib.paths import default_g1_source_xlsx  # noqa: E402
+from lib.machine_qc import MACHINE_QC_NORMAL_HEADERS, machine_qc_normal_for_task  # noqa: E402
 
 # ---------- 表头 → reviewer 列定位 ----------
 
@@ -65,6 +66,8 @@ _TEXT_HEADER_KEYS = [
     "质检人",
     "所属商",
     "所述商",
+    "机评是否正常",
+    "机评是否正常显示",
     "机器质检结果是否正确",
     "错误原因",
 ]
@@ -92,6 +95,7 @@ TASK_REDLINE_OPTIONS = {
     "题目不合理",
     "非本人场景",
     "静态展示性页面",
+    "题目区分度过低",
 }
 FEEDBACK_REDLINE_OPTIONS = {
     "任务质量（题目质量）触及红线",
@@ -543,6 +547,7 @@ def redline_consistency_issues(
     raw_options = split_redline_options(selected)
     canonical_options = [canonical_redline_option(v) for v in raw_options]
     valid_options = [v for v in canonical_options if v]
+    evaluation_redline_issue = str((((qc or {}).get("sheet") or {}).get("evaluation_redline") or {}).get("issue") or "").strip()
 
     task_rating_redline = is_redline_rating(ws, headers.get(_TASK_RATING_HEADER))
     task_can_carry_redline = can_carry_task_redline(ws, headers.get(_TASK_RATING_HEADER))
@@ -593,7 +598,7 @@ def redline_consistency_issues(
         elif opt in FEEDBACK_REDLINE_OPTIONS and opt != "任务质量（题目质量）触及红线" and not has_model_redline:
             issues.append(f"feedback-redline-tag-without-model-redline-rating:{opt}")
 
-    if has_task_tag:
+    if has_task_tag and selected != evaluation_redline_issue:
         if evidence_too_thin([task_note]):
             issues.append("task-redline-evidence-too-thin")
         elif VAGUE_REDLINE_EVIDENCE.search(task_note):
@@ -601,12 +606,12 @@ def redline_consistency_issues(
     feedback_tags_needing_model_evidence = selected_set & (
         FEEDBACK_REDLINE_OPTIONS - {"任务质量（题目质量）触及红线"}
     )
-    if feedback_tags_needing_model_evidence:
+    if feedback_tags_needing_model_evidence and selected != evaluation_redline_issue:
         if evidence_too_thin(redline_model_notes):
             issues.append("feedback-redline-evidence-too-thin")
         elif VAGUE_REDLINE_EVIDENCE.search("\n".join(redline_model_notes)):
             issues.append("feedback-redline-evidence-vague")
-    if "任务质量（题目质量）触及红线" in selected_set:
+    if "任务质量（题目质量）触及红线" in selected_set and selected != evaluation_redline_issue:
         if evidence_too_thin([task_note]):
             issues.append("task-quality-trigger-redline-evidence-too-thin")
         elif VAGUE_REDLINE_EVIDENCE.search(task_note):
@@ -836,6 +841,19 @@ def machine_qc_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]:
     return bad
 
 
+def machine_qc_normal_issues(ws, headers: dict[str, int], task_id: str) -> dict[int, list[str]]:
+    col = next((headers.get(header) for header in MACHINE_QC_NORMAL_HEADERS if headers.get(header)), None)
+    if not col:
+        return {}
+    value = cell_text(ws, col)
+    if value not in {"是", "否"}:
+        return {col: [f"machine-qc-normal-must-be-是-or-否:{value or 'empty'}"]}
+    expected = machine_qc_normal_for_task(REPO_ROOT, task_id) if task_id else None
+    if expected and value != expected:
+        return {col: [f"machine-qc-normal-mismatch:expected={expected}:actual={value}"]}
+    return {}
+
+
 def high_quality_task_issues(ws, headers: dict[str, int]) -> dict[int, list[str]]:
     col = headers.get(_HIGH_QUALITY_TASK_HEADER)
     if not col:
@@ -1028,7 +1046,10 @@ def feedback_rating_rationale_issues(
 ) -> dict[int, list[str]]:
     """Require Feishu notes to name 高质量/合格/不合格; audits to name 完全可用/部分可用/完全不可用."""
     combined = cell_text(ws, headers.get(_PLATFORM_AUDIT_HEADER))
-    qc_models = ((qc or {}).get("sheet") or {}).get("models") or {}
+    sheet = (qc or {}).get("sheet") or {}
+    qc_models = sheet.get("models") or {}
+    redline = sheet.get("evaluation_redline") or {}
+    exact_redline_note = str(redline.get("issue") or "").strip()
     unavailable_models = artifact_download_unavailable_models(qc)
     bad: dict[int, list[str]] = {}
     for model, rating_col, note_col in model_rating_note_cols(headers):
@@ -1037,6 +1058,8 @@ def feedback_rating_rationale_issues(
         rating = cell_text(ws, rating_col)
         note = cell_text(ws, note_col)
         data = qc_models.get(model) or {}
+        if exact_redline_note and note == exact_redline_note and rating == "不合格":
+            continue
         audit = str(
             data.get("platform_audit_reason") or data.get("audit_reason") or ""
         ).strip() or audit_line_for_model(combined, model)
@@ -1257,6 +1280,14 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
         for model, _rating_col, note_col in model_rating_note_cols(headers)
         if model in unavailable_models and note_col
     }
+    evaluation_redline_issue = str(
+        (((qc or {}).get("sheet") or {}).get("evaluation_redline") or {}).get("issue") or ""
+    ).strip()
+    evaluation_redline_note_cols = {
+        note_col
+        for _model, _rating_col, note_col in model_rating_note_cols(headers)
+        if evaluation_redline_issue and note_col and cell_text(ws, note_col) == evaluation_redline_issue
+    }
     bad: dict[int, list[str]] = {}
     for c in cols:
         v = ws.cell(2, c).value
@@ -1268,13 +1299,19 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
             col=c,
             model_note_cols=model_note_cols,
             period=period,
-            skip_annotator_checks=prompt_cheat or c in unavailable_note_cols,
+            skip_annotator_checks=prompt_cheat or c in unavailable_note_cols or c in evaluation_redline_note_cols,
         )
         if c == task_note_col:
             issues.extend(scan_task_quality_note(text))
         if issues:
             bad[c] = issues
-    model_notes = [cell_text(ws, c) for c in sorted(model_note_cols)]
+    # Feedback-redline notes are required to use the fixed redline wording.
+    # Exclude those fixed notes from the cross-task opening-variety check.
+    model_notes = [
+        cell_text(ws, c)
+        for c in sorted(model_note_cols)
+        if c not in evaluation_redline_note_cols
+    ]
     variety_anchor = min(model_note_cols) if model_note_cols else None
     platform_audit_col = headers.get(_PLATFORM_AUDIT_HEADER)
     platform_audit_text = cell_text(ws, platform_audit_col)
@@ -1331,6 +1368,8 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
         for issue in check_ai_feedback(REPO_ROOT / "tasks" / task_id, workbook_labels(ws)):
             bad.setdefault(headers.get(_PLATFORM_AUDIT_HEADER, 1), []).append(issue)
     for col, issues in machine_qc_issues(ws, headers).items():
+        bad.setdefault(col, []).extend(issues)
+    for col, issues in machine_qc_normal_issues(ws, headers, task_id).items():
         bad.setdefault(col, []).extend(issues)
     for col, issues in download_availability_gate_issues(headers, qc, task_id).items():
         bad.setdefault(col, []).extend(issues)

@@ -88,7 +88,7 @@ function isIncompleteAudit(taskId, row) {
   );
   if (!fs.existsSync(auditPath)) return true;
   const audit = readJSON(auditPath);
-  const trajectory = audit?.aiQc?.trajectoryResult;
+  const trajectory = audit?.aiQc?.trajectoryResult || audit?.trajectoryResult;
   return !trajectory
     || trajectory.status !== 'success'
     || !trajectory.resultJson?.FeedbackGrade;
