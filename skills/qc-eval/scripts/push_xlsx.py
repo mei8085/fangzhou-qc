@@ -36,8 +36,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from lib.paths import REPO_ROOT, default_g1_source_xlsx, default_38_source_xlsx  # noqa: E402
 from lib.writing_style import compose_feedback_note  # noqa: E402
-from lib.g1 import PERIOD, SOURCE_SHEET, to_feishu_dirty_tag  # noqa: E402
-from lib.label_options import LABEL_HEADER, resolve_task_label  # noqa: E402
+from lib.g1 import PERIOD, SOURCE_SHEET, canonical_header_name, to_feishu_dirty_tag  # noqa: E402
+from lib.label_options import LABEL_HEADER, label_options, resolve_task_label  # noqa: E402
 from lib.ai_accuracy import validate_ai_accuracy_headers as validate_dynamic_ai_accuracy_headers  # noqa: E402
 from lib.machine_qc import MACHINE_QC_NORMAL_HEADERS, machine_qc_normal_for_task  # noqa: E402
 from zero_one_redline import delivery_sheet  # noqa: E402
@@ -180,7 +180,7 @@ def find_header_columns(ws, header_row: int) -> dict[str, int]:
     for c in range(1, ws.max_column + 1):
         v = ws.cell(header_row, c).value
         if isinstance(v, str) and v.strip():
-            out[v.strip()] = c
+            out[canonical_header_name(v)] = c
     return out
 
 
@@ -371,7 +371,10 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
     label_col = headers.get(LABEL_HEADER)
     if label_col:
         current_label = str(ws.cell(row, label_col).value or "").strip()
-        if not current_label:
+        # Historical source rows may contain an old composite label that is
+        # not a valid current-period dropdown option. Preserve valid labels,
+        # but replace invalid stale values with the explicit QC label/inference.
+        if not current_label or current_label not in set(label_options()):
             task_col = headers.get("任务")
             task_title = str(ws.cell(row, task_col).value or "").strip() if task_col else ""
             write_value(
@@ -379,7 +382,7 @@ def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> N
                 row,
                 label_col,
                 resolve_task_label(
-                    existing_label=current_label,
+                    existing_label="",
                     sheet=sheet,
                     task_title=task_title,
                     task_id=task_id,

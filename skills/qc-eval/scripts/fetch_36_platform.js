@@ -3,7 +3,6 @@
 //
 // Main use:
 //   node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome
-//   node skills/qc-eval/scripts/fetch_38_platform.js auth-login
 //   node skills/qc-eval/scripts/fetch_38_platform.js collect --project 256 --task-id 475 --sheet-task-id <任务ID>
 //
 // Outputs:
@@ -131,8 +130,7 @@ function parseArgs(argv) {
 
 function usage(code = 2) {
   console.error(`usage:
-  node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json] [--profile <profile-dir>] [--chrome-user-data-dir <dir>]
-  node skills/qc-eval/scripts/fetch_38_platform.js auth-login [--state skills/qc-eval/.ark_platform_state.json] [--url <login-url>]
+  node skills/qc-eval/scripts/fetch_38_platform.js auth-from-chrome [--state skills/qc-eval/.ark_platform_state.json]
   node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id 6397
   node skills/qc-eval/scripts/fetch_g1_platform.js discover-session --task-id 7972 --run-id 24669
   node skills/qc-eval/scripts/fetch_g1_platform.js discover-session --task-id 7979 --run-id 24699 --download-original
@@ -141,8 +139,11 @@ function usage(code = 2) {
   node skills/qc-eval/scripts/fetch_38_platform.js find-project (--task-id 475 | --task-title <title>) [--projects 230-270|256] [--state <state.json>]
 
 notes:
-  auth-from-chrome copies volcengine cookies from the local Chrome profile (Windows VSS / macOS Keychain / Linux). The default profile comes from config/g1.json chrome_profile when present, otherwise Default.
-  If cookie export fails, it falls back to auth-login (headed Playwright window).
+  auth-from-chrome copies volcengine cookies only from Chrome profile quan-134
+  (disk directory Profile 4; Windows VSS / macOS Keychain / Linux).
+  If cookie export or session verification fails, auth-from-chrome stops without
+  opening any browser window. Sign in using the existing Chrome profile first,
+  then run auth-from-chrome again.
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
   collect requires a same-task discover-download result, then reads first-round Prompt uploads and per-run data. Models with disabled download buttons keep only metadata/evaluation scores; downloadable models also collect audit data, 下载列表, workspace zip, and trajectory JSON.
   After CaseBffV1CrowdtestTaskGet, collect downloads and inspects first-round uploads, then scans page + uploaded text for round-quota cheating. A hit skips workspace/trajectory/download-list.
@@ -1538,6 +1539,18 @@ function defaultChromeProfile() {
   return process.env.QC_CHROME_PROFILE || cfg.chrome_profile || 'Default';
 }
 
+const REQUIRED_CHROME_PROFILE = 'Profile 4';
+
+function lockedChromeProfile(opts) {
+  const profile = opts.profile || defaultChromeProfile();
+  if (profile !== REQUIRED_CHROME_PROFILE) {
+    throw new Error(
+      `only Chrome profile ${REQUIRED_CHROME_PROFILE} (quan-134) is allowed; received ${profile}`,
+    );
+  }
+  return REQUIRED_CHROME_PROFILE;
+}
+
 function copyChromeCookieFiles(userDataDir, profile, tempDir) {
   const profileDir = path.join(userDataDir, profile);
   const cookieDirs = [path.join(profileDir, 'Network'), profileDir];
@@ -1714,7 +1727,7 @@ function installExportedState(cookieCopy, localStateCopy, statePath, extraEnv = 
 
 function authFromChromeWindows(opts) {
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
-  const profile = opts.profile || defaultChromeProfile();
+  const profile = lockedChromeProfile(opts);
   const userDataDir = opts['chrome-user-data-dir'] ||
     path.join(os.homedir(), 'AppData', 'Local', 'Google', 'Chrome', 'User Data');
   const resolvedUserDataDir = path.resolve(userDataDir);
@@ -1752,7 +1765,7 @@ Write-Output $id
 
 function authFromChromeUnix(opts) {
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
-  const profile = opts.profile || defaultChromeProfile();
+  const profile = lockedChromeProfile(opts);
   const userDataDir = path.resolve(opts['chrome-user-data-dir'] || defaultChromeUserDataDir());
   if (!fs.existsSync(userDataDir)) {
     throw new Error(`Chrome user data dir not found: ${userDataDir}`);
@@ -1770,58 +1783,10 @@ function authFromChromeUnix(opts) {
   }
 }
 
-async function authLogin(opts) {
-  const statePath = path.resolve(opts.state || DEFAULT_STATE);
-  const pendingStatePath = exportedStateTempPath(statePath);
-  const cfg = loadG1Config() || {};
-  const projectId = Number(opts.project || cfg.project_id || 313);
-  const loginUrl = opts.url
-    || configuredProjectReviewUrl(projectId, cfg);
-  const timeoutMs = Number(opts.timeout || 300000);
-  ensureDir(path.dirname(statePath));
-  let browser;
-  try {
-    browser = await chromium.launch({ headless: false, channel: 'chrome' });
-  } catch {
-    browser = await chromium.launch({ headless: false });
-  }
-  const ctx = await browser.newContext();
-  const page = await ctx.newPage();
-  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  console.log('==> waiting for volcengine login in the opened browser window');
-  console.log('    sign in, then leave the window open until the Ark session is verified');
-  const started = Date.now();
-  try {
-    while (Date.now() - started < timeoutMs) {
-      const cookies = await ctx.cookies();
-      const csrf = cookies.find((c) => c.name === 'csrfToken' && String(c.domain || '').includes('volcengine.com'));
-      if (csrf && csrf.value) {
-        await ctx.storageState({ path: pendingStatePath });
-        csrfFromState(pendingStatePath);
-        try {
-          await postAction(ctx, pendingStatePath, 'CaseBffV1CrowdtestTaskModelRunList', {
-            projectId,
-            page: 1,
-            pageSize: 1,
-            taskKeyword: '',
-            visibleColumns: VISIBLE_COLUMNS,
-          });
-          atomicWriteJSON(statePath, readJSON(pendingStatePath));
-          console.log(`==> wrote ${rel(statePath)} (${cookies.length} cookies, Ark session verified)`);
-          return;
-        } catch (err) {
-          if (!/NotLogin|Not logged in|HTTP 401/i.test(String(err && err.message || err))) {
-            throw err;
-          }
-        }
-      }
-      await sleep(1500);
-    }
-    throw new Error(`timed out waiting for csrfToken after ${timeoutMs}ms; re-run auth-login after signing in`);
-  } finally {
-    if (fs.existsSync(pendingStatePath)) fs.rmSync(pendingStatePath, { force: true });
-    await browser.close();
-  }
+async function authLogin() {
+  throw new Error(
+    'interactive login is disabled: sign in with the existing quan-134 Chrome profile (Profile 4), then run auth-from-chrome',
+  );
 }
 
 async function verifyArkState(statePath, opts = {}) {
@@ -2074,23 +2039,37 @@ async function discoverAuditForm(opts) {
 }
 
 async function authFromChrome(opts) {
+  const statePath = path.resolve(opts.state || DEFAULT_STATE);
   try {
     if (process.platform === 'win32') authFromChromeWindows(opts);
     else authFromChromeUnix(opts);
-    const statePath = path.resolve(opts.state || DEFAULT_STATE);
     await verifyArkState(statePath, opts);
     console.log('==> Ark session verified');
   } catch (err) {
+    // Chrome v20/App-Bound Encryption may make a fresh cookie export
+    // unavailable even while the previously exported Ark state is valid.
+    // Verify that state before failing, without opening any visible browser.
+    if (fs.existsSync(statePath)) {
+      try {
+        await verifyArkState(statePath, opts);
+        console.warn(`==> Chrome cookie export failed: ${err.message}`);
+        console.warn(`==> retained existing verified Ark state ${rel(statePath)}; no new browser was opened.`);
+        return;
+      } catch (stateErr) {
+        console.error(`==> existing Ark state verification failed: ${stateErr.message}`);
+      }
+    }
     console.error(`==> Chrome cookie export failed: ${err.message}`);
-    console.error('==> falling back to interactive Playwright login (auth-login)');
-    await authLogin(opts);
+    console.error('==> auth-from-chrome stopped; no new browser was opened.');
+    console.error('    Sign in with the existing quan-134 Chrome profile (Profile 4), then run auth-from-chrome again.');
+    throw err;
   }
 }
 
 async function main() {
   const opts = parseArgs(process.argv);
   if (opts.cmd === 'auth-from-chrome') return authFromChrome(opts);
-  if (opts.cmd === 'auth-login') return authLogin(opts);
+  if (opts.cmd === 'auth-login') return authLogin();
   if (opts.cmd === 'find-project') return findProject(opts);
   if (opts.cmd === 'collect') return collect(opts);
   if (opts.cmd === 'discover-download') return discoverDownloadList(opts);
@@ -2108,6 +2087,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  main,
   evaluationRedlineReport,
   isLowDiscrimination,
   numericScore,

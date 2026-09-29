@@ -1,11 +1,11 @@
 {
-  "period": "46期",
-  "project_id": 387,
+  "period": "47期",
+  "project_id": 507,
   "source": {
-    "url": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/387/task/9278",
-    "task_id": 9278,
-    "task_title": "46期 Ark project 387 质检任务",
-    "note": "质检表单字段沿用当前 Ark 通用结构；逐模型 review URL 由采集结果动态生成，未作答模型无可写入的审核页。"
+    "url": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/507/task/10987",
+    "task_id": 10987,
+    "task_title": "47期 Ark project 507 质检任务",
+    "note": "质检表单字段沿用当前 Ark 通用结构；逐模型 review URL 由采集结果动态生成，未作答模型无可写入的审核页。AI 质检结果以 Ark 平台 audit.json 为准，不读取本地 AIQC 补充表。"
   },
   "page": {
     "left_tabs": [

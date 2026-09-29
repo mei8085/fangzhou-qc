@@ -31,6 +31,7 @@ REPO_ROOT = SKILL_DIR.parent.parent
 sys.path.insert(0, str(HERE))
 
 from lib.g1 import (  # noqa: E402
+    canonical_header_name,
     FEISHU_SHEET_ID,
     FEISHU_WIKI,
     PERIOD,
@@ -39,7 +40,7 @@ from lib.g1 import (  # noqa: E402
     is_feishu_dirty_tag_related_header,
     to_feishu_dirty_tag,
 )
-from lib.label_options import LABEL_HEADER  # noqa: E402
+from lib.label_options import LABEL_HEADER, label_options  # noqa: E402
 from lib.concurrency import DirectoryLock  # noqa: E402
 from lib.ai_accuracy import inspect_ai_accuracy_schema  # noqa: E402
 from push_feishu import (  # noqa: E402
@@ -67,7 +68,7 @@ def read_remote_headers(token: str, sheet_id: str, max_col: int, profile: str) -
         for idx, value in enumerate(row, start=1):
             text = cell_to_text(value).strip()
             if text:
-                headers[text] = idx
+                headers[canonical_header_name(text)] = idx
         if "任务" not in headers and headers.get("任务ID", 0) > 1:
             headers["任务"] = headers["任务ID"] - 1
         if "任务" in headers and "任务ID" in headers:
@@ -119,7 +120,7 @@ def load_delivery(task_id: str, local_xlsx: Path | None):
     wb = openpyxl.load_workbook(xlsx, data_only=True)
     ws = wb.worksheets[0]
     headers = {
-        str(ws.cell(1, c).value).strip(): c
+        canonical_header_name(str(ws.cell(1, c).value)): c
         for c in range(1, ws.max_column + 1)
         if isinstance(ws.cell(1, c).value, str) and str(ws.cell(1, c).value).strip()
     }
@@ -342,9 +343,11 @@ def main() -> int:
             text = ''.join(lines)
         if header == LABEL_HEADER:
             remote_text = read_remote_cell(token, args.sheet_id, cell_a1, args.profile)
-            if remote_text:
+            if remote_text and remote_text in set(label_options()):
                 print(f"     [skip] {cell_a1} label already set: {remote_text!r}")
                 continue
+            if remote_text:
+                print(f"     [fix] {cell_a1} replacing invalid label: {remote_text!r}")
             if not text.strip():
                 continue
         if is_feishu_dirty_tag_header(header):

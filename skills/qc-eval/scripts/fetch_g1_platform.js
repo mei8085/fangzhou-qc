@@ -6,9 +6,9 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = path.resolve(__dirname, '..', 'config', 'g1.json');
-const FALLBACK_PROJECT_ID = 387;
+const FALLBACK_PROJECT_ID = 507;
 const FALLBACK_PROJECT_URL =
-  'https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/387/task/9278';
+  'https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/507/task/10987';
 const FALLBACK_CHROME_PROFILE = 'Profile 4';
 
 function loadConfig() {
@@ -40,7 +40,7 @@ function loadConfig() {
       argv.push('--allow-missing-models');
     }
   }
-  if ((cmd === 'auth-login' || cmd === 'auth-from-chrome') && !has('--url')) {
+  if (cmd === 'auth-from-chrome' && !has('--url')) {
     argv.push('--url', projectUrl);
   }
   if (cmd === 'auth-from-chrome' && !has('--profile')) {
@@ -51,4 +51,17 @@ function loadConfig() {
   }
 }());
 
-require('./fetch_36_platform.js');
+const implementation = require('./fetch_36_platform.js');
+
+if (require.main === module) {
+  if (process.argv[2] === 'auth-login') {
+    console.error(
+      'interactive login is disabled; use the existing quan-134 Chrome profile (Profile 4), then run auth-from-chrome',
+    );
+    process.exit(2);
+  }
+  implementation.main().catch((error) => {
+    console.error(error.stack || error.message || error);
+    process.exit(1);
+  });
+}

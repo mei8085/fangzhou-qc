@@ -10,23 +10,26 @@ from .paths import REPO_ROOT, SKILL_DIR, default_g1_source_xlsx
 
 CONFIG_PATH = SKILL_DIR / "config" / "g1.json"
 _FALLBACK_CONFIG = {
-    "period": "46期",
-    "project_id": 387,
-    "project_url": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/387/task/9278",
-    "audit_url_template": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/projects/387/review/{taskModelRunId}?mode=audit",
+    "period": "47期",
+    "project_id": 507,
+    "project_url": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/507/task/10987",
+    "audit_url_template": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/projects/507/review/{taskModelRunId}?mode=audit",
     "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
-    "source_xlsx": "docs/46.xlsx",
+    "source_xlsx": "docs/47.xlsx",
     "source_sheet": "Sheet1",
-    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=A76nb7",
-    "feishu_sheet_id": "A76nb7",
+    "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=O8b911",
+    "feishu_sheet_id": "O8b911",
+    "header_aliases": {
+        "kimi-k3脏数据标签理由": ["kimi-k3h脏数据标签理由"],
+    },
     "output_subdir": "ark_g1",
     "allow_missing_models": True,
     "missing_model_rating": "不合格",
     "models": [
-        {"sheet": "glm-5.3-flash", "code": "glm-5.3-flash", "platform": "urchin"},
-        {"sheet": "0907A", "code": "0907A", "platform": "terrace"},
-        {"sheet": "0906E", "code": "0906E", "platform": "scarab"},
-        {"sheet": "deepseek-v4-flash", "code": "deepseek-v4-flash", "platform": "viaduct"},
+        {"sheet": "deepseek-v4.1-flash", "code": "deepseek-v4.1-flash", "platform": "delphi"},
+        {"sheet": "qwen3.8-max-0902", "code": "qwen3.8-max-0902", "platform": "badger"},
+        {"sheet": "0902F", "code": "0902F", "platform": "crypt"},
+        {"sheet": "kimi-k3", "code": "kimi-k1", "platform": "anvil"},
     ],
 }
 
@@ -51,6 +54,15 @@ SOURCE_SHEET = str(_CONFIG.get("source_sheet") or "Sheet1")
 FEISHU_WIKI = str(_CONFIG["feishu_wiki"])
 FEISHU_SHEET_ID = str(_CONFIG["feishu_sheet_id"])
 OUTPUT_SUBDIR = str(_CONFIG.get("output_subdir") or "ark_g1")
+HEADER_ALIASES = {
+    str(canonical).strip(): [str(alias).strip() for alias in aliases or [] if str(alias).strip()]
+    for canonical, aliases in (_CONFIG.get("header_aliases") or {}).items()
+}
+_HEADER_CANONICAL_BY_ALIAS = {
+    alias: canonical
+    for canonical, aliases in HEADER_ALIASES.items()
+    for alias in aliases
+}
 DEFAULT_DIRTY_TAG = "非脏数据"
 
 # Feishu current-period dirty-tag dropdown. Non-dirty data stays blank.
@@ -105,7 +117,7 @@ MISSING_MODEL_RATING = str(_CONFIG.get("missing_model_rating") or "不合格")
 def sheet_model_label(sheet_name: str) -> str:
     """Return the Feishu audit-reason label with the Ark platform codeName.
 
-    Example: ``glm-5.3-flash`` -> ``glm-5.3-flash（urchin）``. Unknown sheet names
+    Example: ``deepseek-v4.1-flash`` -> ``deepseek-v4.1-flash（delphi）``. Unknown sheet names
     are returned unchanged so other periods keep their original prefixes.
     """
     name = str(sheet_name or "").strip()
@@ -129,6 +141,12 @@ def sheet_model_for_platform(code_name: str) -> str | None:
         if platform.lower() == key:
             return sheet
     return None
+
+
+def canonical_header_name(header: str) -> str:
+    """Map configured source-table header typos to their canonical names."""
+    name = str(header or "").strip()
+    return _HEADER_CANONICAL_BY_ALIAS.get(name, name)
 
 
 def is_feishu_dirty_tag_header(header: str) -> bool:

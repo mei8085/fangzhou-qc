@@ -1,17 +1,22 @@
 {
-  "period": "46期",
-  "project_id": 387,
-  "project_url": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/387/task/9278",
+  "period": "47期",
+  "project_id": 507,
+  "project_url": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/507/task/10987",
   "chrome_profile": "Profile 4",
   "chrome_profile_label": "quan-134",
-  "task_url_template": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/387/task/{taskId}",
-  "audit_url_template": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/projects/387/review/{taskModelRunId}?mode=audit",
+  "task_url_template": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/507/task/{taskId}",
+  "audit_url_template": "https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/projects/507/review/{taskModelRunId}?mode=audit",
   "audit_form_template": "skills/qc-eval/config/g1_audit_form.json",
   "audit_form_fill_script": "skills/qc-eval/scripts/fill_g1_audit_form.js",
-  "source_xlsx": "docs/46.xlsx",
+  "source_xlsx": "docs/47.xlsx",
   "source_sheet": "Sheet1",
-  "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=A76nb7",
-  "feishu_sheet_id": "A76nb7",
+  "feishu_wiki": "https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=O8b911",
+  "feishu_sheet_id": "O8b911",
+  "header_aliases": {
+    "kimi-k3脏数据标签理由": [
+      "kimi-k3h脏数据标签理由"
+    ]
+  },
   "allow_missing_models": true,
   "missing_model_rating": "不合格",
   "feishu_dirty_tag_options": [
@@ -28,24 +33,24 @@
   "output_subdir": "ark_g1",
   "models": [
     {
-      "sheet": "glm-5.3-flash",
-      "code": "glm-5.3-flash",
-      "platform": "urchin"
+      "sheet": "deepseek-v4.1-flash",
+      "code": "deepseek-v4.1-flash",
+      "platform": "delphi"
     },
     {
-      "sheet": "0907A",
-      "code": "0907A",
-      "platform": "terrace"
+      "sheet": "qwen3.8-max-0902",
+      "code": "qwen3.8-max-0902",
+      "platform": "badger"
     },
     {
-      "sheet": "0906E",
-      "code": "0906E",
-      "platform": "scarab"
+      "sheet": "0902F",
+      "code": "0902F",
+      "platform": "crypt"
     },
     {
-      "sheet": "deepseek-v4-flash",
-      "code": "deepseek-v4-flash",
-      "platform": "viaduct"
+      "sheet": "kimi-k3",
+      "code": "kimi-k1",
+      "platform": "anvil"
     }
   ]
 }

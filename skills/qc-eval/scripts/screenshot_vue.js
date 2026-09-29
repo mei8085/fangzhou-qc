@@ -549,17 +549,22 @@ async function screenshotConfiguredModel(browser, label, code, entryDir, outDir,
 
   let dev;
   try {
-    const publicDir = config.static_public_dir
-      ? path.resolve(entryDir, config.static_public_dir)
-      : null;
-    if (publicDir) {
-      if (!fs.existsSync(path.join(publicDir, 'index.html'))) {
-        throw new Error(`static public directory has no index.html: ${publicDir}`);
-      }
-      console.log(`     serving static frontend from ${publicDir}`);
-      dev = await startStaticServer(publicDir, port);
+    if (config.server_url) {
+      dev = { child: null, url: String(config.server_url) };
+      console.log(`     using existing app server at ${dev.url}`);
     } else {
-      dev = await startDevServer(entryDir, port);
+      const publicDir = config.static_public_dir
+        ? path.resolve(entryDir, config.static_public_dir)
+        : null;
+      if (publicDir) {
+        if (!fs.existsSync(path.join(publicDir, 'index.html'))) {
+          throw new Error(`static public directory has no index.html: ${publicDir}`);
+        }
+        console.log(`     serving static frontend from ${publicDir}`);
+        dev = await startStaticServer(publicDir, port);
+      } else {
+        dev = await startDevServer(entryDir, port);
+      }
     }
   } catch (e) {
     console.error(`   [err] ${label}: dev server failed — ${e.message}`);
@@ -650,7 +655,7 @@ async function screenshotConfiguredModel(browser, label, code, entryDir, outDir,
     return { error: e.message };
   } finally {
     await ctx.close();
-    killTree(dev.child.pid);
+    if (dev && dev.child) killTree(dev.child.pid);
     await new Promise(r => setTimeout(r, 800));
   }
   return { firstPng };
@@ -695,11 +700,12 @@ async function main() {
         }
         const entryDir = resolveEntryDir(taskDir, info);
         console.log(`==> ${col} (${info.code})  entry=${path.relative(path.join(taskDir, 'extracted', info.code), entryDir) || '.'}`);
-        if (!fs.existsSync(path.join(entryDir, 'package.json'))) {
+        const modelConfig = (screenshotConfig.models || {})[col];
+        const configuredServer = modelConfig && (modelConfig.server_url || modelConfig.static_public_dir);
+        if (!fs.existsSync(path.join(entryDir, 'package.json')) && !configuredServer) {
           console.error(`   [skip] no package.json at ${entryDir}`);
           continue;
         }
-        const modelConfig = (screenshotConfig.models || {})[col];
         if (modelConfig) {
           await screenshotConfiguredModel(browser, col, info.code, entryDir, outDir, port, args.keep, modelConfig);
         } else {
