@@ -20,7 +20,7 @@ description: 47期方舟 coding 众测质检工作流。质检题目从本地 do
 - AI 轨迹质检准确性字段按本地查题源表的模型数量动态启用：模型数量以源表中 `<模型>反馈质量（作业质量）` 列的实际数量为准，每个模型需要 `模型N质检结论是否准确` 和 `模型N判断原因` 两列；3/4/5 个模型分别对应 6/8/10 个字段。完整存在时必须填充，全部不存在时不得新增，部分存在、编号不连续或模型数量不匹配时按表结构错误停止。
 - 飞书交付表：`https://bytedance.larkoffice.com/wiki/OY1Dw0dcailCxTk3UGOcykVznAf?sheet=O8b911`
 - sheet_id：`O8b911`
-- Chrome 认证资料固定为 `quan-134`（磁盘目录 `Profile 4`）。`auth-from-chrome` 只从该已登录 Profile 导出方舟平台 cookie；禁止传入其他 Profile，禁止启动新的 Chrome/Chromium 登录窗口。
+- Chrome 认证资料固定为 `quan-134`（磁盘目录 `Profile 4`）。每次质检前由人工先在该 Profile 登录成功；`auth-from-chrome` 只从该 Profile 导出方舟平台 Cookie，禁止传入其他 Profile，禁止启动任何新 Chrome/Chromium 登录窗口。指定 Profile 无法导出或校验失败时必须停止并提醒人工登录，不得复用旧状态继续工作。
 - 本地任务目录名：必须使用源表 `任务ID`，例如 `6397`
 - Ark 平台项目：`https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/507/task/10987`
 - 任务详情：`https://ark.volcengine.com/crowdtest/region:cn-beijing/crowdtest/myprojects/507/task/<任务ID>`
@@ -60,9 +60,9 @@ description: 47期方舟 coding 众测质检工作流。质检题目从本地 do
 
 同时支持 Cursor、Claude Code、Codex；操作系统为 Windows（含 Git Bash）、macOS、Linux。
 
-- Python 3：下列命令写 `python3`。Windows 若只有 `python`，把命令中的 `python3` 换成 `python`。也可用 `QC_PYTHON` 指定解释器。
+- Python 依赖统一由 `skills/qc-eval/requirements.txt` 管理。每个新工程目录或发现 `.venv` 不存在时，先执行 `python3 skills/qc-eval/scripts/bootstrap_qc_env.py`；脚本会创建项目级 `.venv` 并安装完整依赖。后续 Python 命令使用 `.venv/bin/python`（Windows 为 `.venv\Scripts\python.exe`），Node 脚本会优先使用该 `.venv`；只有明确指定 `QC_PYTHON` 时才覆盖。
 - 源表路径不要写死盘符。默认见上文「本地源表」。
-- Ark 登录态：`auth-from-chrome` 只从本机 Chrome 的 `quan-134` 个人资料（`Profile 4`）导出 volcengine cookie（Windows 用 VSS，macOS 用 Keychain，Linux 用 libsecret）。导出或校验失败时直接停止，不打开任何新浏览器；请先在现有 `quan-134 / Profile 4` 中完成登录，再重新执行 `auth-from-chrome`。
+- Ark 登录态：`auth-from-chrome` 只从本机已人工登录的 Chrome `quan-134` 个人资料（`Profile 4`）导出 volcengine Cookie（Windows 用 VSS，macOS 用 Keychain，Linux 用 libsecret），并对 Cookie 快照做有限重试。导出和 Ark API 校验都必须针对本次 Profile 成功后才原子更新共享状态；失败就停止，提醒人工登录后重试，不打开新浏览器、不复用旧状态。
 - 平台采集、AI 质检读取和草稿回填均使用导出的登录态在无头上下文中运行，不打开可见登录窗口。
 - `lark-cli` 必须在 PATH 中（macOS/Linux 为 `lark-cli`，Windows 可为 `lark-cli.exe`）。
 - 测试机 SSH 别名 `u03l`：题目依赖数据库、消息队列、Celery、后端服务容器，或交付物自带 docker-compose 时，优先在这台机器上用 Docker 起基础设施；本机缺少 JDK/Maven/Docker/MySQL/Postgres/Redis 等验收所需环境，或 Docker daemon 不可用时，必须先转 u03l 补环境复测，不能降级成本机半验证或只截前端登录页。一次性准备见 `skills/qc-eval/remote/README.md`；何时用、用哪条脚本见下文「复测启动与截图」。
@@ -228,6 +228,15 @@ python3 skills/qc-eval/scripts/screenshot_style_guard.py <任务ID>
 
 ## 标准流程
 
+0. 先初始化本仓库的 Python 环境。新工程没有 `.venv` 时会自动创建；已有 `.venv` 时补齐 `skills/qc-eval/requirements.txt` 中的依赖。后续 Python 命令统一调用 `.venv/bin/python`（Windows 为 `.venv\Scripts\python.exe`），不要直接使用全局 `python3`。
+
+```bash
+python3 skills/qc-eval/scripts/bootstrap_qc_env.py
+export QC_PYTHON="$PWD/.venv/bin/python"
+```
+
+下文示例中的 `python3` 在完成这一步后统一替换为 `"$QC_PYTHON"`；Windows 使用 `.venv\Scripts\python.exe` 设置对应的 `QC_PYTHON`。若 `.venv` 不存在或依赖检查失败，先修复初始化，不要退回全局 Python。
+
 1. 确认本地源表存在，并按任务ID定位题目。不要从飞书同步源表。
 
 ```bash
@@ -241,7 +250,7 @@ python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id 6397
 ```bash
 node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome
 # 默认等价于：node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome --profile "Profile 4"
-# cookie 导出失败时停止；请在已打开的 quan-134 / Profile 4 中登录后重试
+# cookie 导出或校验失败时停止，提醒人工在已打开的 quan-134 / Profile 4 中登录后重试；禁止启动新浏览器
 ```
 
 4. **先执行模型产物下载可用性闸门，再采集 Ark 平台材料。** 这是每题、每个已提交模型的强制前置步骤，不能等到看完轨迹或启动产物后再补查。
@@ -401,7 +410,7 @@ python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
 python3 skills/qc-eval/scripts/generate_model_qc_platform.py <任务ID>
 ```
 
-对于启用 AI 准确性字段的任务，填充本地 xlsx 后再按用户授权回写飞书；只有用户明确要求更新平台反馈时才使用 `probe_g1_ai_feedback.js --update`。脚本先读取方舟 AI 质检侧边栏：若页面显示“结果待复核”“重试耗尽”“人工兜底”“provider_job_stuck”“脏数据状态未知”，或未显示正常的“质检通过/质检异常”结果，则认为 AI 质检没有正常数据，记录跳过原因并不填写人工准确性反馈；账号无编辑权限、重新编辑按钮不可用或提交按钮禁用时同样跳过，不报错。平台存在正常 AI 质检结果时，更新脚本才填写“准确/不准确”和理由，然后点击“提交反馈”；只有已有反馈且输入控件确实 disabled 时，才尝试点击可用的“重新编辑”后再修改。提交后必须刷新页面重新读取并比对服务器保存值；只有回读准确性和理由都一致才算成功。AI 质检未完成的模型只写飞书“否 / AI质检未完成”，不得更新平台。该脚本只允许修改“准确/不准确”、反馈理由并点击“提交反馈”，不得改平台质检表单、评测打分或其他页面：
+对于启用 AI 准确性字段的任务，填充本地 xlsx 后再按用户授权回写飞书；只有用户明确要求更新平台反馈时才使用 `probe_g1_ai_feedback.js --update`。用户要求“写入平台 / 写入网页 / 写入平台草稿 / 填平台”且本地存在 `tasks/<TASK_ID>/ai_feedback_answers.json` 时，必须把“平台质检表单草稿”和“AI 轨迹质检人工准确性反馈”都纳入收尾检查：先保存右侧质检表单草稿，再执行 AI 反馈提交；若用户明确只要求其中一项，才只执行对应动作。AI 反馈不是右侧质检表单草稿，它会点击「提交反馈」，但只影响 AI 质检准确性反馈，不会提交审核、打回或改评测分数。脚本先读取方舟 AI 质检侧边栏：若页面显示“结果待复核”“重试耗尽”“人工兜底”“provider_job_stuck”“脏数据状态未知”，或未显示正常的“质检通过/质检异常”结果，则认为 AI 质检没有正常数据，记录跳过原因并不填写人工准确性反馈；账号无编辑权限、重新编辑按钮不可用或提交按钮禁用时同样跳过，不报错。平台存在正常 AI 质检结果时，更新脚本才填写“准确/不准确”和理由，然后点击“提交反馈”；只有已有反馈且输入控件确实 disabled 时，才尝试点击可用的“重新编辑”后再修改。提交后必须刷新页面重新读取并比对服务器保存值；只有回读准确性和理由都一致才算成功。AI 质检未完成的模型只写飞书“否 / AI质检未完成”，不得更新平台。该脚本只允许修改“准确/不准确”、反馈理由并点击“提交反馈”，不得改平台质检表单、评测打分或其他页面：
 
 ```bash
 node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> --no-screenshots
@@ -415,6 +424,8 @@ node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> \
 47期没有提供本地 AI 质检结果表，不能读取或补充 `docs/aiqc.xlsx`，也不要运行 `supplement_aiqc.py`。AI 质检结果以 Ark 平台采集到的逐模型 `audit.json` 和平台 AI 质检页面为唯一来源；若平台结果缺失或状态异常，按“AI质检未完成”填写本地准确性字段，并保留平台证据，不得用本地表猜测或替代。
 
 9. 填写平台质检表单必须听用户指令。用户明确要求“填写平台质检表单 / 保存草稿 / 写入网页质检”后，才把 `delivery/<TASK_ID>/<TASK_ID>_audit_form_fill.json` 填进 `projects/507/review/<taskModelRunId>?mode=audit` 右侧「质检」面板。脚本只改质检表单，并只点「保存草稿」。未作答模型没有审核页，脚本会记录跳过，不得伪造草稿。禁止点「提交审核」「打回」「返回列表」，禁止改「评测打分」、Session 轨迹、Workspace 或附件。提交必须留给人工检查后再点。
+
+保存平台质检表单草稿后，若本题启用了 AI 准确性字段且 `tasks/<TASK_ID>/ai_feedback_answers.json` 存在，必须继续检查 `tasks/<TASK_ID>/ark_g1/ai_feedback/summary.json`。只有其中每个可反馈模型都已回读到与答案文件一致的 `existing_accuracy` 和 `existing_reason`，才算平台相关内容完成；否则在用户已要求写入平台的授权范围内运行上一步的 `probe_g1_ai_feedback.js --update ... --confirm-user-instructed`。不要把“已保存质检草稿”误当成“AI 轨迹质检人工反馈已提交”。
 
 ```bash
 node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>
@@ -598,7 +609,7 @@ CLI / 测试 / 终端证据截图只保留与复测结论直接相关的命令�
 python3 skills/qc-eval/scripts/probe_g1_task_ids.py --task-id <任务ID>
 node skills/qc-eval/scripts/fetch_g1_platform.js auth-from-chrome
 # 默认使用 Chrome 的 quan-134 个人资料（Profile 4）
-# 失败时不启动新浏览器，先在现有 Profile 4 中登录后重试
+# 失败时停止并提醒人工登录；禁止启动新浏览器
 # 每题强制先检查逐模型下载按钮；状态未知时停止：
 node skills/qc-eval/scripts/fetch_g1_platform.js discover-download --task-id <任务ID>
 node skills/qc-eval/scripts/fetch_g1_platform.js collect --task-id <任务ID>
@@ -633,6 +644,8 @@ python3 skills/qc-eval/scripts/selfcheck.py <任务ID>
 node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> --no-screenshots
 # 用户明确要求填写平台质检表单后才可执行；只保存草稿，不提交：
 node skills/qc-eval/scripts/fill_g1_audit_form.js --task-id <任务ID>
+# 用户明确要求写入平台，且存在 ai_feedback_answers.json 时，还必须提交 AI 轨迹质检人工准确性反馈：
+node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id <任务ID> --update --answers tasks/<任务ID>/ai_feedback_answers.json --confirm-user-instructed
 python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --dry-run
 # 用户明确要求上传/回写飞书后才可执行：
 python3 skills/qc-eval/scripts/push_g1_feishu.py <任务ID> --write --confirm-user-instructed

@@ -210,7 +210,11 @@ function packageRunner(entryDir) {
 }
 
 async function startStaticServer(publicDir, port) {
-  const python = process.env.QC_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+  const python = process.env.QC_PYTHON || (
+    process.platform === 'win32'
+      ? path.join(REPO_ROOT, '.venv', 'Scripts', 'python.exe')
+      : path.join(REPO_ROOT, '.venv', 'bin', 'python')
+  );
   const child = spawn(python, [
     '-m', 'http.server', String(port),
     '--bind', '127.0.0.1',

@@ -92,12 +92,51 @@ function rel(p) {
   return path.relative(REPO_ROOT, p).replace(/\\/g, '/');
 }
 
+function qcPython() {
+  if (process.env.QC_PYTHON) return process.env.QC_PYTHON;
+  return process.platform === 'win32'
+    ? path.join(REPO_ROOT, '.venv', 'Scripts', 'python.exe')
+    : path.join(REPO_ROOT, '.venv', 'bin', 'python');
+}
+
 function readJSON(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
 function writeJSON(file, value) {
   atomicWriteJSON(file, value);
+}
+
+function printAiFeedbackReminder(taskId) {
+  const answersPath = path.join(REPO_ROOT, 'tasks', String(taskId), 'ai_feedback_answers.json');
+  if (!fs.existsSync(answersPath)) return;
+  const summaryPath = path.join(REPO_ROOT, 'tasks', String(taskId), 'ark_g1', 'ai_feedback', 'summary.json');
+  let needsReview = true;
+  if (fs.existsSync(summaryPath)) {
+    try {
+      const answers = readJSON(answersPath).models || {};
+      const summary = readJSON(summaryPath);
+      const rows = summary.models || [];
+      needsReview = !rows.length || rows.some((row) => {
+        const answer = answers[row.sheet];
+        if (!answer) return true;
+        if (!row.platform_ai_qc_available) return false;
+        return row.existing_accuracy !== answer.accuracy || row.existing_reason !== answer.reason;
+      });
+    } catch {
+      needsReview = true;
+    }
+  }
+  if (!needsReview) {
+    console.log('==> AI trajectory QC feedback already matches tasks/%s/ai_feedback_answers.json', taskId);
+    return;
+  }
+  console.log('==> reminder: AI trajectory QC feedback answers exist at %s', rel(answersPath));
+  console.log(
+    '    If the user asked to write platform feedback too, run: node skills/qc-eval/scripts/probe_g1_ai_feedback.js --task-id %s --update --answers tasks/%s/ai_feedback_answers.json --confirm-user-instructed',
+    taskId,
+    taskId,
+  );
 }
 
 function sleep(ms) {
@@ -643,7 +682,7 @@ async function main() {
 
   const { fillPath, payload } = loadFillPayload(taskId);
   const evidenceCheck = spawnSync(
-    process.env.QC_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'),
+    qcPython(),
     [path.join(HERE, 'check_ai_feedback.py'), String(taskId), '--fill-file', fillPath],
     { cwd: REPO_ROOT, encoding: 'utf8' },
   );
@@ -723,6 +762,7 @@ async function main() {
   const summaryPath = path.join(outDir, 'audit_fill_result.json');
   writeJSON(summaryPath, summary);
   console.log(`==> wrote ${rel(summaryPath)}`);
+  printAiFeedbackReminder(taskId);
 
   await browser.close();
   if (failed) process.exit(1);

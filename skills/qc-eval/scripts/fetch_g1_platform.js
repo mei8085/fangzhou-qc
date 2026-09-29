@@ -54,12 +54,6 @@ function loadConfig() {
 const implementation = require('./fetch_36_platform.js');
 
 if (require.main === module) {
-  if (process.argv[2] === 'auth-login') {
-    console.error(
-      'interactive login is disabled; use the existing quan-134 Chrome profile (Profile 4), then run auth-from-chrome',
-    );
-    process.exit(2);
-  }
   implementation.main().catch((error) => {
     console.error(error.stack || error.message || error);
     process.exit(1);

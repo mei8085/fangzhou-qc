@@ -142,8 +142,8 @@ notes:
   auth-from-chrome copies volcengine cookies only from Chrome profile quan-134
   (disk directory Profile 4; Windows VSS / macOS Keychain / Linux).
   If cookie export or session verification fails, auth-from-chrome stops without
-  opening any browser window. Sign in using the existing Chrome profile first,
-  then run auth-from-chrome again.
+  opening any browser window. Sign in manually with the existing Chrome profile
+  first, then run auth-from-chrome again.
   find-project probes accessible crowdtest project ids and writes tasks/_38_project_probe_<keyword>.json.
   collect requires a same-task discover-download result, then reads first-round Prompt uploads and per-run data. Models with disabled download buttons keep only metadata/evaluation scores; downloadable models also collect audit data, 下载列表, workspace zip, and trajectory JSON.
   After CaseBffV1CrowdtestTaskGet, collect downloads and inspects first-round uploads, then scans page + uploaded text for round-quota cheating. A hit skips workspace/trajectory/download-list.
@@ -191,6 +191,10 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function sleepSync(ms) {
+  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 function isTransientApiError(err) {
   const msg = String((err && err.message) || err || '');
   return /InternalServiceTimeout|AccountFlowLimitExceeded|timeout|ECONNRESET|ETIMEDOUT|HTTP (?:408|429|500|502|503|504)\b/i.test(msg);
@@ -198,11 +202,29 @@ function isTransientApiError(err) {
 
 function csrfFromState(statePath) {
   const state = readJSON(statePath);
-  const cookie = (state.cookies || []).find((c) => c.name === 'csrfToken' && String(c.domain || '').includes('volcengine.com'));
-  if (!cookie || !cookie.value) {
-    throw new Error(`csrfToken cookie not found in ${statePath}; refresh auth with auth-from-chrome`);
+  const now = Math.floor(Date.now() / 1000);
+  const candidates = (state.cookies || [])
+    .filter((c) => String(c.name || '').toLowerCase() === 'csrftoken')
+    .filter((c) => String(c.domain || '').toLowerCase().includes('volcengine.com'))
+    .filter((c) => c.value)
+    .filter((c) => {
+      const expires = Number(c.expires);
+      return !Number.isFinite(expires) || expires <= 0 || expires > now;
+    })
+    .sort((a, b) => {
+      const domainScore = (cookie) => {
+        const domain = String(cookie.domain || '').toLowerCase();
+        if (domain === '.volcengine.com' || domain === 'volcengine.com') return 3;
+        if (domain === 'console.volcengine.com') return 2;
+        return 1;
+      };
+      const pathScore = (cookie) => (String(cookie.path || '/') === '/' ? 1 : 0);
+      return domainScore(b) - domainScore(a) || pathScore(b) - pathScore(a);
+    });
+  if (!candidates.length) {
+    throw new Error(`csrfToken cookie not found in ${statePath}; sign in manually with quan-134 Chrome Profile 4, then run auth-from-chrome`);
   }
-  return cookie.value;
+  return candidates[0].value;
 }
 
 function responseError(action, status, body) {
@@ -1507,12 +1529,17 @@ function run(command, args, options = {}) {
 
 function pythonCmd() {
   if (process.env.QC_PYTHON) return process.env.QC_PYTHON;
-  const cmds = process.platform === 'win32' ? ['python', 'python3'] : ['python3', 'python'];
-  for (const cmd of cmds) {
-    const r = spawnSync(cmd, ['-c', 'import sys; print(sys.version_info[0])'], { encoding: 'utf8' });
-    if (r.status === 0 && String(r.stdout || '').trim().startsWith('3')) return cmd;
+  const venvPython = process.platform === 'win32'
+    ? path.join(REPO_ROOT, '.venv', 'Scripts', 'python.exe')
+    : path.join(REPO_ROOT, '.venv', 'bin', 'python');
+  if (!fs.existsSync(venvPython)) {
+    throw new Error(
+      `qc-eval virtual environment not found: ${venvPython}; run python3 skills/qc-eval/scripts/bootstrap_qc_env.py first`,
+    );
   }
-  throw new Error('Python 3 not found (tried python3/python). Set QC_PYTHON to the interpreter path.');
+  const r = spawnSync(venvPython, ['-c', 'import sys; print(sys.version_info[0])'], { encoding: 'utf8' });
+  if (r.status === 0 && String(r.stdout || '').trim().startsWith('3')) return venvPython;
+  throw new Error(`qc-eval virtual environment is not usable: ${venvPython}; run python3 skills/qc-eval/scripts/bootstrap_qc_env.py`);
 }
 
 function defaultChromeUserDataDir() {
@@ -1666,6 +1693,13 @@ else:
     key = pbkdf2_hmac('sha1', password.encode('utf-8'), b'saltysalt', rounds, dklen=16)
     decrypt = lambda host, value, encrypted: decrypt_unix(host, value, encrypted, key)
 
+if platform_name != 'win32':
+    try:
+        import cryptography  # noqa: F401
+    except ImportError as exc:
+        print('cryptography is required to decrypt Chrome cookies; install it or set QC_PYTHON to a Python environment that has it', file=sys.stderr)
+        raise SystemExit(3) from exc
+
 con = sqlite3.connect(cookies_db)
 con.row_factory = sqlite3.Row
 rows = con.execute("""
@@ -1680,7 +1714,10 @@ cookies = []
 for r in rows:
     try:
         val = decrypt(r['host_key'], r['value'], r['encrypted_value'])
-    except Exception:
+    except Exception as exc:
+        if r['name'] == 'csrfToken':
+            print(f"failed to decrypt csrfToken cookie for {r['host_key']}: {exc}", file=sys.stderr)
+            raise SystemExit(4) from exc
         continue
     if not val:
         continue
@@ -1714,15 +1751,27 @@ function exportedStateTempPath(statePath) {
 
 function installExportedState(cookieCopy, localStateCopy, statePath, extraEnv = {}) {
   ensureDir(path.dirname(statePath));
-  const pending = exportedStateTempPath(statePath);
-  try {
-    const count = exportCookiesWithPython(cookieCopy, localStateCopy, pending, extraEnv);
-    csrfFromState(pending);
-    atomicWriteJSON(statePath, readJSON(pending));
-    return count;
-  } finally {
-    if (fs.existsSync(pending)) fs.rmSync(pending, { force: true });
+  const maxAttempts = Number(process.env.ARK_AUTH_EXPORT_RETRIES || 4);
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const pending = exportedStateTempPath(statePath);
+    try {
+      const count = exportCookiesWithPython(cookieCopy, localStateCopy, pending, extraEnv);
+      csrfFromState(pending);
+      atomicWriteJSON(statePath, readJSON(pending));
+      return count;
+    } catch (err) {
+      lastErr = err;
+      const retryable = /csrfToken cookie not found/i.test(String(err && err.message));
+      if (!retryable || attempt >= maxAttempts) throw err;
+      const waitMs = Math.min(3000, 250 * attempt);
+      console.warn(`   [auth-retry] cookie snapshot attempt ${attempt}/${maxAttempts}: ${err.message}; wait ${waitMs}ms`);
+      sleepSync(waitMs);
+    } finally {
+      if (fs.existsSync(pending)) fs.rmSync(pending, { force: true });
+    }
   }
+  throw lastErr;
 }
 
 function authFromChromeWindows(opts) {
@@ -1754,7 +1803,7 @@ Write-Output $id
 `;
     shadowId = run('powershell', ['-NoProfile', '-Command', ps]).trim().split(/\r?\n/).pop();
     const count = installExportedState(cookieCopy, localStateCopy, statePath);
-    console.log(`==> wrote ${rel(statePath)} (${count} cookies)`);
+    if (!opts.quiet) console.log(`==> wrote ${rel(statePath)} (${count} cookies)`);
   } finally {
     if (shadowId) {
       spawnSync('powershell', ['-NoProfile', '-Command', `Get-CimInstance Win32_ShadowCopy | Where-Object { $_.ID -eq '${shadowId}' } | Remove-CimInstance`], { stdio: 'ignore' });
@@ -1777,16 +1826,10 @@ function authFromChromeUnix(opts) {
     const count = installExportedState(cookieCopy, localStateCopy, statePath, {
       CHROME_SAFE_STORAGE_PASSWORD: password,
     });
-    console.log(`==> wrote ${rel(statePath)} (${count} cookies)`);
+    if (!opts.quiet) console.log(`==> wrote ${rel(statePath)} (${count} cookies)`);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
-}
-
-async function authLogin() {
-  throw new Error(
-    'interactive login is disabled: sign in with the existing quan-134 Chrome profile (Profile 4), then run auth-from-chrome',
-  );
 }
 
 async function verifyArkState(statePath, opts = {}) {
@@ -2040,36 +2083,31 @@ async function discoverAuditForm(opts) {
 
 async function authFromChrome(opts) {
   const statePath = path.resolve(opts.state || DEFAULT_STATE);
+  const pending = exportedStateTempPath(statePath);
   try {
-    if (process.platform === 'win32') authFromChromeWindows(opts);
-    else authFromChromeUnix(opts);
-    await verifyArkState(statePath, opts);
-    console.log('==> Ark session verified');
+    const exportOpts = { ...opts, state: pending, quiet: true };
+    if (process.platform === 'win32') authFromChromeWindows(exportOpts);
+    else authFromChromeUnix(exportOpts);
+    await verifyArkState(pending, opts);
+    atomicWriteJSON(statePath, readJSON(pending));
+    console.log(`==> Ark session verified; wrote ${rel(statePath)}`);
   } catch (err) {
-    // Chrome v20/App-Bound Encryption may make a fresh cookie export
-    // unavailable even while the previously exported Ark state is valid.
-    // Verify that state before failing, without opening any visible browser.
-    if (fs.existsSync(statePath)) {
-      try {
-        await verifyArkState(statePath, opts);
-        console.warn(`==> Chrome cookie export failed: ${err.message}`);
-        console.warn(`==> retained existing verified Ark state ${rel(statePath)}; no new browser was opened.`);
-        return;
-      } catch (stateErr) {
-        console.error(`==> existing Ark state verification failed: ${stateErr.message}`);
-      }
-    }
     console.error(`==> Chrome cookie export failed: ${err.message}`);
     console.error('==> auth-from-chrome stopped; no new browser was opened.');
-    console.error('    Sign in with the existing quan-134 Chrome profile (Profile 4), then run auth-from-chrome again.');
+    if (/virtual environment|cryptography is required|zstandard/i.test(String(err && err.message))) {
+      console.error('    Initialize the project environment first: python3 skills/qc-eval/scripts/bootstrap_qc_env.py');
+    } else {
+      console.error('    Sign in manually with the existing quan-134 Chrome profile (Profile 4), then run auth-from-chrome again.');
+    }
     throw err;
+  } finally {
+    if (fs.existsSync(pending)) fs.rmSync(pending, { force: true });
   }
 }
 
 async function main() {
   const opts = parseArgs(process.argv);
   if (opts.cmd === 'auth-from-chrome') return authFromChrome(opts);
-  if (opts.cmd === 'auth-login') return authLogin();
   if (opts.cmd === 'find-project') return findProject(opts);
   if (opts.cmd === 'collect') return collect(opts);
   if (opts.cmd === 'discover-download') return discoverDownloadList(opts);

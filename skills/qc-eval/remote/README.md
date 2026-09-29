@@ -16,7 +16,7 @@
 
 - `~/.ssh/config` 里 `Host u03l` 段（走 key 免密登录）
 - 装了 `ssh` / `scp` / `rsync`（Windows OpenSSH + rsync via `choco install rsync` 或 WSL）
-- Python 3.11 + Playwright + Pillow + openpyxl（跟 qc-eval 主流程一致）
+- Python 3.11 + Playwright + Pillow + openpyxl + cryptography + zstandard（跟 qc-eval 主流程一致；cryptography 用于解密 Chrome Cookie，zstandard 用于 `.tar.zst` 产物）
 
 ## 目录约定
 

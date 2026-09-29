@@ -12,6 +12,7 @@ tools/go/
 .dotnet-home/
 .dotnet-win/
 .qc_venv/
+.venv/
 .pytest_cache/
 .oc_ws/
 dist/
@@ -38,6 +39,7 @@ delivery/
 skills/qc-eval/.platform_state.json
 skills/qc-eval/.platform_creds.json
 skills/qc-eval/.ark_platform_state.json
+skills/qc-eval/.ark_login_profile/
 
 # fullstack verify: per-model venvs, generated env files, per-task logs, smoke test PNGs
 tmp/verify_smoke/
