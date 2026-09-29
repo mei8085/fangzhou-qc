@@ -40,6 +40,7 @@ from lib.g1 import PERIOD, SOURCE_SHEET, to_feishu_dirty_tag  # noqa: E402
 from lib.label_options import LABEL_HEADER, resolve_task_label  # noqa: E402
 from lib.ai_accuracy import validate_ai_accuracy_headers as validate_dynamic_ai_accuracy_headers  # noqa: E402
 from lib.machine_qc import MACHINE_QC_NORMAL_HEADERS, machine_qc_normal_for_task  # noqa: E402
+from zero_one_redline import delivery_sheet  # noqa: E402
 
 DEFAULT_SOURCE = default_g1_source_xlsx()
 DEFAULT_SHEET = SOURCE_SHEET
@@ -348,7 +349,7 @@ def build_delivery_ws(src_ws, sheet_name: str, header_row: int, task_row: int, o
 
 
 def fill_one(ws, headers: dict[str, int], task_id: str, qc: dict, row: int) -> None:
-    sheet = qc.get("sheet", {})
+    sheet = delivery_sheet(qc.get("sheet", {}), extract_model_names(headers))
     for header, key_or_aliases in HEADER_MAP_SHEET.items():
         if header in READ_ONLY_HEADERS:
             continue

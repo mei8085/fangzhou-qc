@@ -19,6 +19,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from lib.prompt_cheat import is_prompt_cheat_task  # noqa: E402
+from zero_one_redline import REQUIRED_MODEL_COUNT, is_zero_one  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -300,12 +301,35 @@ def check_task(task_id: str) -> list[str]:
 
     if not qc_path.exists():
         return [f"{task_id}: missing tasks/{task_id}/qc_cells.json"]
+    qc = load_json(qc_path)
+    sheet = qc.get("sheet", {})
+    if is_zero_one(sheet):
+        models = list((sheet.get("models") or {}).keys())
+        if len(models) != REQUIRED_MODEL_COUNT:
+            errors.append(
+                f"{task_id}: 0-1红线必须包含全部{REQUIRED_MODEL_COUNT}个模型"
+            )
+        if not delivery_dir.exists():
+            return errors + [
+                f"{task_id}: 0-1红线缺少平台初始空仓截图目录"
+            ]
+        for model_name in models:
+            tag = model_screenshot_tag(model_name)
+            original = delivery_dir / f"{tag}_01_initial_workspace_empty.png"
+            verify = delivery_dir / f"{tag}_verify.png"
+            if not original.is_file() or not verify.is_file():
+                errors.append(
+                    f"{task_id}/{model_name}: 缺少平台初始空仓截图或verify原图副本"
+                )
+            elif original.read_bytes() != verify.read_bytes():
+                errors.append(
+                    f"{task_id}/{model_name}: 初始空仓verify图必须直接复用原图"
+                )
+        return errors
     if not map_path.exists():
         return [f"{task_id}: missing tasks/{task_id}/model_map.json"]
 
-    qc = load_json(qc_path)
     model_map = load_json(map_path)
-    sheet = qc.get("sheet", {})
     verifiable = sheet.get("verifiable")
     reason = (sheet.get("verifiable_reason") or "").strip()
     names = iter_model_names(model_map)

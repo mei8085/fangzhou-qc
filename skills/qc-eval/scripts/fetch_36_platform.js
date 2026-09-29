@@ -1001,6 +1001,27 @@ function perfunctoryReason(row) {
   return '';
 }
 
+function numericScore(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function isLowDiscrimination(models, allScores) {
+  const submittedModelCount = Object.keys(models).length;
+  const completeScoreModels = Object.values(models).filter((model) => (
+    ['执行过程', '产物质量'].every((dimension) => (
+      numericScore((model.scores || {})[dimension]) !== null
+    ))
+  )).length;
+  return submittedModelCount === 4
+    && completeScoreModels === 4
+    && allScores.length === 8
+    && Math.min(...allScores) >= 9
+    && Math.max(...allScores) - Math.min(...allScores) <= 1;
+}
+
 function evaluationRedlineReport(rows, taskDir, config) {
   const models = {};
   const allScores = [];
@@ -1015,8 +1036,8 @@ function evaluationRedlineReport(rows, taskDir, config) {
     const remarkRows = [];
     for (const dim of dims) {
       scores[dim.dimension] = dim.score;
-      const numeric = Number(dim.score);
-      if (Number.isFinite(numeric)) allScores.push(numeric);
+      const numeric = numericScore(dim.score);
+      if (numeric !== null) allScores.push(numeric);
       const reason = perfunctoryReason(dim);
       const row = {
         dimension: dim.dimension,
@@ -1035,12 +1056,15 @@ function evaluationRedlineReport(rows, taskDir, config) {
       dimensions: remarkRows,
     };
   }
-  const lowDiscrimination = allScores.length >= 2
-    && Math.min(...allScores) >= 9
-    && Math.max(...allScores) - Math.min(...allScores) <= 1;
   const perfunctoryCount = allRemarks.filter((item) => Boolean(item.perfunctory_reason)).length;
   const perfunctoryRatio = allRemarks.length ? perfunctoryCount / allRemarks.length : 0;
   const submittedModelCount = Object.keys(models).length;
+  const completeScoreModels = Object.values(models).filter((model) => (
+    ['执行过程', '产物质量'].every((dimension) => (
+      numericScore((model.scores || {})[dimension]) !== null
+    ))
+  )).length;
+  const lowDiscrimination = isLowDiscrimination(models, allScores);
   const modelsWithPerfunctory = Object.values(models).filter((model) => (
     (model.dimensions || []).some((item) => Boolean(item.perfunctory_reason))
   )).length;
@@ -1067,6 +1091,9 @@ function evaluationRedlineReport(rows, taskDir, config) {
       count: allScores.length,
       min: allScores.length ? Math.min(...allScores) : null,
       max: allScores.length ? Math.max(...allScores) : null,
+      required_model_count: 4,
+      submitted_model_count: submittedModelCount,
+      complete_score_model_count: completeScoreModels,
       all_scores_gte_9_and_range_lte_1: lowDiscrimination,
     },
     perfunctory: {
@@ -2073,7 +2100,15 @@ async function main() {
   usage();
 }
 
-main().catch((e) => {
-  console.error(e.stack || e.message || e);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e.stack || e.message || e);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  evaluationRedlineReport,
+  isLowDiscrimination,
+  numericScore,
+};

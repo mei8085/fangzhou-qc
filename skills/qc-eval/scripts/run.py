@@ -58,6 +58,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from lib.paths import REPO_ROOT, default_source_xlsx  # noqa: E402
 from lib.ai_accuracy import validate_ai_accuracy_headers  # noqa: E402
+from zero_one_redline import is_zero_one  # noqa: E402
 
 TASKS_DIR = REPO_ROOT / "tasks"
 
@@ -371,12 +372,38 @@ def emit_one(task_id: str, dry: bool, *, period: str, sheet: str, source: Path) 
     except RuntimeError as exc:
         print(f"  [err] {exc}", file=sys.stderr)
         return False
-    kind = task_kind(task_id)
     try:
         _qc = json.loads(cells.read_text(encoding="utf-8-sig"))
         _verifiable = _qc.get("sheet", {}).get("verifiable", "")
     except Exception:
+        _qc = {}
         _verifiable = ""
+    if is_zero_one(_qc.get("sheet", {})):
+        print("  0-1题目红线：仅核验平台初始空仓截图，不实测产物。")
+        for script in ("blank_guard.py", "evidence_guard.py", "screenshot_style_guard.py"):
+            if run_py(script, task_id, dry=dry) != 0:
+                return False
+        if run_py("push_xlsx.py", task_id, "--source", str(source), "--sheet", sheet, dry=dry) != 0:
+            return False
+        if ai_accuracy:
+            if run_node(
+                "fill_ai_qc_accuracy.mjs",
+                task_id,
+                "--source",
+                str(source),
+                "--sheet",
+                sheet,
+                "--write",
+                dry=dry,
+            ) != 0:
+                return False
+        if run_py("generate_model_qc_platform.py", task_id, dry=dry) != 0:
+            return False
+        if run_py("selfcheck.py", task_id, dry=dry) != 0:
+            print(f"  emit 完成但 selfcheck 命中：请改 qc_cells.json 后重跑 emit")
+            return False
+        return True
+    kind = task_kind(task_id)
     if period in TASK_HTML_SCREENSHOT_PERIODS and kind == "unknown":
         if _verifiable == "否":
             # Do not use an attachment summary page as the only evidence for non-verifiable tasks.

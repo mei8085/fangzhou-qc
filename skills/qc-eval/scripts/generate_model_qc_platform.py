@@ -40,6 +40,7 @@ from lib.writing_style import (  # noqa: E402
     compose_feedback_note,
     default_audit_reason as build_default_audit_reason,
 )
+from zero_one_redline import delivery_sheet  # noqa: E402
 
 HIGH_QUALITY = "\u9ad8\u8d28\u91cf"
 QUALIFIED = "\u5408\u683c"
@@ -233,7 +234,7 @@ def ordered_model_names(sheet: dict) -> list[str]:
 
 
 def model_fill_row(qc: dict, model_name: str, model_map: dict) -> dict:
-    sheet = qc.get("sheet") or {}
+    sheet = delivery_sheet(qc.get("sheet") or {})
     data = (sheet.get("models") or {}).get(model_name) or {}
     meta = model_run_meta(model_name, model_map)
     prompt_quality = platform_prompt_quality(sheet.get("prompt_quality"))
@@ -273,7 +274,10 @@ def model_fill_row(qc: dict, model_name: str, model_map: dict) -> dict:
 
 
 def build_fill_payload(task_id: str, qc: dict, model_map: dict) -> dict:
-    sheet = qc.get("sheet") or {}
+    sheet = delivery_sheet(qc.get("sheet") or {})
+    if sheet is not qc.get("sheet"):
+        qc = dict(qc)
+        qc["sheet"] = sheet
     g1 = load_g1_config()
     rows = [model_fill_row(qc, name, model_map) for name in ordered_model_names(sheet)]
     raw_models = {row["sheet"]: row for row in iter_model_evaluations(task_id)}

@@ -21,6 +21,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from zero_one_redline import is_zero_one
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -71,12 +72,17 @@ def check_task(task_id: str) -> list[str]:
     map_path = task_dir / "model_map.json"
     errors: list[str] = []
 
-    if not map_path.exists():
+    qc_path = task_dir / "qc_cells.json"
+    sheet = load_json(qc_path).get("sheet", {}) if qc_path.exists() else {}
+    if is_zero_one(sheet):
+        model_map = {"sheet_columns": list((sheet.get("models") or {}).keys())}
+    elif map_path.exists():
+        model_map = load_json(map_path)
+    else:
         return [f"{task_id}: missing tasks/{task_id}/model_map.json"]
     if not shot_dir.exists():
         return [f"{task_id}: missing delivery/{task_id}/screenshots"]
 
-    model_map = load_json(map_path)
     for model_name in iter_model_names(model_map):
         tag = model_screenshot_tag(model_name)
         frames = sorted(

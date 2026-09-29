@@ -54,6 +54,12 @@ from lib.prompt_cheat import is_prompt_cheat_task  # noqa: E402
 from lib.ai_accuracy import inspect_ai_accuracy_schema  # noqa: E402
 from lib.paths import default_g1_source_xlsx  # noqa: E402
 from lib.machine_qc import MACHINE_QC_NORMAL_HEADERS, machine_qc_normal_for_task  # noqa: E402
+from zero_one_redline import (  # noqa: E402
+    DIRTY_TAG as ZERO_ONE_DIRTY_TAG,
+    NOTE as ZERO_ONE_NOTE,
+    REQUIRED_MODEL_COUNT,
+    is_zero_one,
+)
 
 # ---------- 表头 → reviewer 列定位 ----------
 
@@ -91,6 +97,7 @@ _AI_ACCURACY_REASON_RE = re.compile(
 )
 
 TASK_REDLINE_OPTIONS = {
+    "0-1题目",
     "毫无意义的题目",
     "非代码题",
     "题目不合理",
@@ -426,7 +433,7 @@ def load_recent_task_notes(
 
 
 def split_redline_options(s: str) -> list[str]:
-    return [p.strip() for p in re.split(r"[，,；;\n]+", s) if p.strip()]
+    return [p.strip() for p in re.split(r"[，,；;、\n]+", s) if p.strip()]
 
 
 def canonical_redline_option(s: str) -> str | None:
@@ -549,6 +556,30 @@ def redline_consistency_issues(
     raw_options = split_redline_options(selected)
     canonical_options = [canonical_redline_option(v) for v in raw_options]
     valid_options = [v for v in canonical_options if v]
+    sheet = (qc or {}).get("sheet") or {}
+    if is_zero_one(sheet) or "0-1题目" in valid_options:
+        issues: list[str] = []
+        if set(valid_options) != {"0-1题目", "题目不合理"} or len(valid_options) != 2:
+            issues.append("zero-one-requires-0-1题目-and-题目不合理")
+        if cell_text(ws, headers.get(_TASK_RATING_HEADER)) != "不合格":
+            issues.append("zero-one-task-rating-must-be-不合格")
+        if cell_text(ws, headers.get(_PROMPT_QUALITY_NOTE_HEADER)) != ZERO_ONE_NOTE:
+            issues.append("zero-one-task-note-mismatch")
+        models = model_rating_note_cols(headers)
+        if len(models) != REQUIRED_MODEL_COUNT:
+            issues.append(f"zero-one-requires-{REQUIRED_MODEL_COUNT}-models")
+        for name, rating_col, note_col in models:
+            if cell_text(ws, rating_col) != "不合格":
+                issues.append(f"zero-one-model-rating-must-be-不合格:{name}")
+            if cell_text(ws, note_col) != ZERO_ONE_NOTE:
+                issues.append(f"zero-one-model-note-mismatch:{name}")
+            dirty_col = headers.get(f"{name}脏数据标签")
+            if cell_text(ws, dirty_col) != ZERO_ONE_DIRTY_TAG:
+                issues.append(f"zero-one-model-dirty-tag-mismatch:{name}")
+        for header in (_HIGH_QUALITY_TASK_HEADER, _NORMAL_TASK_HEADER):
+            if cell_text(ws, headers.get(header)) != "否":
+                issues.append(f"zero-one-must-be-否:{header}")
+        return issues
     evaluation_redline_issue = str((((qc or {}).get("sheet") or {}).get("evaluation_redline") or {}).get("issue") or "").strip()
 
     task_rating_redline = is_redline_rating(ws, headers.get(_TASK_RATING_HEADER))
@@ -1049,6 +1080,9 @@ def feedback_rating_rationale_issues(
     """Require Feishu notes to name 高质量/合格/不合格; audits to name 完全可用/部分可用/完全不可用."""
     combined = cell_text(ws, headers.get(_PLATFORM_AUDIT_HEADER))
     sheet = (qc or {}).get("sheet") or {}
+    selected = cell_text(ws, redline_header_col(headers))
+    if is_zero_one(sheet) or "0-1题目" in split_redline_options(selected):
+        return {}
     qc_models = sheet.get("models") or {}
     redline = sheet.get("evaluation_redline") or {}
     exact_redline_note = str(redline.get("issue") or "").strip()
@@ -1315,6 +1349,9 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
         if evaluation_redline_issue and note_col and cell_text(ws, note_col) == evaluation_redline_issue
     }
     bad: dict[int, list[str]] = {}
+    qc_sheet = (qc or {}).get("sheet") or {}
+    redline_value = cell_text(ws, redline_header_col(headers))
+    zero_one = is_zero_one(qc_sheet) or "0-1题目" in split_redline_options(redline_value)
     for c in cols:
         v = ws.cell(2, c).value
         if not v:
@@ -1325,7 +1362,12 @@ def check_xlsx(xlsx_path: Path, task_id: str = "") -> tuple[dict[int, list[str]]
             col=c,
             model_note_cols=model_note_cols,
             period=period,
-            skip_annotator_checks=prompt_cheat or c in unavailable_note_cols or c in evaluation_redline_note_cols,
+            skip_annotator_checks=(
+                prompt_cheat
+                or zero_one
+                or c in unavailable_note_cols
+                or c in evaluation_redline_note_cols
+            ),
         )
         if c == task_note_col:
             issues.extend(scan_task_quality_note(text))
