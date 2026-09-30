@@ -18,6 +18,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent.parent
 MAX_FILES = 100_000
 MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
+LARGE_GENERATED_ARTIFACT_BYTES = 1 * 1024 * 1024 * 1024
 
 
 def safe_relative_member(name: str) -> Path | None:
@@ -32,7 +33,13 @@ def safe_relative_member(name: str) -> Path | None:
     return Path(*relative.parts)
 
 
-def extract_workspace(archive: Path, target: Path, *, force: bool) -> int:
+def extract_workspace(
+    archive: Path,
+    target: Path,
+    *,
+    force: bool,
+    skip_large_generated_artifacts: bool,
+) -> int:
     if target.exists():
         if not force:
             return 0
@@ -45,6 +52,14 @@ def extract_workspace(archive: Path, target: Path, *, force: bool) -> int:
         for info in zf.infolist():
             relative = safe_relative_member(info.filename)
             if relative is None or info.is_dir():
+                continue
+            if (
+                skip_large_generated_artifacts
+                and info.file_size > LARGE_GENERATED_ARTIFACT_BYTES
+                and "target" in relative.parts
+                and relative.suffix.lower() == ".jar"
+            ):
+                print(f"  [extract] skip large generated artifact: {info.filename}")
                 continue
             if stat.S_ISLNK(info.external_attr >> 16):
                 raise RuntimeError(f"symlink zip member is not allowed: {info.filename!r}")
@@ -175,7 +190,13 @@ def detect_entry(
     return candidates[0] if candidates else target
 
 
-def process_task(task_id: str, tasks_dir: Path, *, force: bool) -> bool:
+def process_task(
+    task_id: str,
+    tasks_dir: Path,
+    *,
+    force: bool,
+    skip_large_generated_artifacts: bool,
+) -> bool:
     task_dir = tasks_dir / task_id
     model_map_path = task_dir / "model_map.json"
     if not model_map_path.exists():
@@ -206,7 +227,12 @@ def process_task(task_id: str, tasks_dir: Path, *, force: bool) -> bool:
         if len(archives) != 1:
             raise RuntimeError(f"expected one workspace zip for {sheet}, found {len(archives)} in {workspace_dir}")
         target = task_dir / "extracted" / code
-        count = extract_workspace(archives[0], target, force=force)
+        count = extract_workspace(
+            archives[0],
+            target,
+            force=force,
+            skip_large_generated_artifacts=skip_large_generated_artifacts,
+        )
         entry = detect_entry(target, archives[0], task_id, task_dir, run_id, platform)
         info["entry"] = entry.relative_to(target).as_posix() or "."
         info["workspace_zip"] = archives[0].relative_to(task_dir).as_posix()
@@ -224,8 +250,21 @@ def main() -> int:
     parser.add_argument("task_ids", nargs="+")
     parser.add_argument("--tasks-dir", default=str(REPO_ROOT / "tasks"))
     parser.add_argument("--force", action="store_true", help="replace existing extracted model directories")
+    parser.add_argument(
+        "--skip-large-generated-artifacts",
+        action="store_true",
+        help="skip target JAR files larger than 1 GiB when source code is still present",
+    )
     args = parser.parse_args()
-    ok = sum(process_task(str(task_id), Path(args.tasks_dir), force=args.force) for task_id in args.task_ids)
+    ok = sum(
+        process_task(
+            str(task_id),
+            Path(args.tasks_dir),
+            force=args.force,
+            skip_large_generated_artifacts=args.skip_large_generated_artifacts,
+        )
+        for task_id in args.task_ids
+    )
     return 0 if ok == len(args.task_ids) else 1
 
 
